@@ -13,7 +13,7 @@ curl -fsS http://localhost:8080/health/ready
 open http://localhost:8080/docs
 ```
 
-Swagger is the temporary API interface; the actual React GUI arrives in PR-03.
+PR-03 builds and serves the React GUI at http://localhost:8080/. Swagger remains at /docs.
 Use the example configuration to create a project:
 
 ```sh

@@ -1,10 +1,13 @@
 """Local Studio API; no browser execution or GitHub publishing in PR-02."""
+import os
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import psycopg
 import redis
 from fastapi import Body, FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from site_transfer.config import ConfigError, validate_config
@@ -12,7 +15,7 @@ from site_transfer.documentation import initialize_project
 from . import db
 from .settings import project_root, redis_url
 
-app = FastAPI(title="Site Transfer Studio", version="0.2.0")
+app = FastAPI(title="Site Transfer Studio", version="0.3.0")
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
 
@@ -88,3 +91,13 @@ def create(payload: dict = Body(...)):
         return db.create_project(project_id, config)
     except (OSError, ValueError, psycopg.Error) as exc:
         raise HTTPException(status_code=503, detail=f"Project initialization failed; recovery ID: {project_id}") from exc
+
+# The production UI is served by the API on the same origin. No catch-all route
+# can shadow API/health endpoints. The initial frontend uses in-memory navigation.
+ui_dir = Path(os.environ.get("STUDIO_UI_DIR", "/app/studio-ui"))
+if (ui_dir / "index.html").is_file() and (ui_dir / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=ui_dir / "assets"), name="studio-assets")
+
+    @app.get("/", include_in_schema=False)
+    def studio():
+        return FileResponse(ui_dir / "index.html", headers={"Cache-Control": "no-cache"})
