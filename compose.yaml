@@ -61,6 +61,7 @@ services:
       retries: 6
   worker:
     <<: *runtime
+    shm_size: 512mb
     command: ["celery", "-A", "site_transfer.server.worker:app", "worker", "--loglevel=INFO", "--concurrency=1"]
     depends_on:
       migrate:
