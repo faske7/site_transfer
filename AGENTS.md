@@ -8,3 +8,5 @@
 6. Do not claim a capture, comparison or test succeeded unless it ran and produced evidence.
 7. Do not embed credentials or copy unlicensed assets. Keep publication behind explicit review.
 8. Use small scoped PRs; do not merge without review.
+9. Preserve the independent Python core; API, worker and GUI are adapters. Keep native arm64 compatibility and the mandatory Tauri final stage in the roadmap.
+10. Keep local service ports on loopback; never mount the host Docker socket into server containers or allow arbitrary native shell commands.
