@@ -32,7 +32,7 @@ PR-02 implementation: FastAPI, PostgreSQL 17, Redis 7, Celery and Docker Compose
 React GUI is not yet available.
 
 ## Current status
-PR-01 merged into main (25d2b459); user verified all 14 foundation tests on macOS, Python 3.13.7, pytest 9.2.0 (0.70 s). PR-02 implementation was merged into the foundation branch, not main; a dedicated integration PR brings it to main. Docker/API runtime and Apple Silicon smoke tests have not run. Create/list/read project registry generates mandatory documents before saving metadata. Worker runtime has no capture tasks yet.
+PR-01 merged into main (25d2b459); user verified all 14 foundation tests on macOS, Python 3.13.7, pytest 9.2.0 (0.70 s). PR-02 implementation was merged into the foundation branch, not main; a dedicated integration PR brings it to main. User verified 20/20 Python tests (5.25 s; one Starlette TestClient deprecation warning), native linux/aarch64 Docker, all five services, API create/list, generated documents, Celery ping and persistence after restart. The last three checks were confirmed by the user without raw logs. Create/list/read project registry generates mandatory documents before saving metadata. Worker runtime has no capture tasks yet.
 
 ## Technical decisions
 - Root CONTEXT.md is mandatory for this repository and every generated project.
@@ -44,7 +44,7 @@ PR-01 merged into main (25d2b459); user verified all 14 foundation tests on macO
 - English templates in PR-01; localization deferred.
 
 ## Known issues
-Runtime tests not verified. API assumes trusted local host; worker readiness not checked by API. Failed metadata writes can leave orphaned artifacts; manual recovery ID is returned. GUI, capture, export, automated reconciliation, desktop, localization, resume and publishing remain deferred. Example URL is a placeholder.
+PR-02 local runtime checks passed as reported by the user. API assumes trusted local host; worker readiness not checked by API. Failed metadata writes can leave orphaned artifacts; manual recovery ID is returned. GUI, capture, export, automated reconciliation, desktop, localization, resume and publishing remain deferred. Example URL is a placeholder.
 
 ## Next steps
-Run PR-02 unit tests and Docker smoke tests on Apple Silicon, including persistence; review and merge the integration PR into main. PR-03 Web GUI follows.
+Complete PR-02 integration into main; implement PR-03 Web GUI.
