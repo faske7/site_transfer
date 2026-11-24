@@ -35,7 +35,7 @@ PR-02 implementation: FastAPI, PostgreSQL 17, Redis 7, Celery and Docker Compose
 - open http://localhost:8080 (Docker GUI; use configured port)
 
 ## Current status
-PR-01 merged into main (25d2b459); user verified all 14 foundation tests on macOS, Python 3.13.7, pytest 9.2.0 (0.70 s). PR-02 integration PR #3 merged into main (fb1afbcd). User verified 20/20 Python tests (5.25 s; one Starlette TestClient deprecation warning), native linux/aarch64 Docker, all five services, API create/list, generated documents, Celery ping and persistence after restart. The last three checks were confirmed by the user without raw logs. Create/list/read project registry generates mandatory documents before saving metadata. Worker runtime has no capture tasks yet. PR-03 GUI implemented on a feature branch; frontend build/tests and Docker GUI smoke tests are pending.
+PR-01 merged into main (25d2b459); user verified all 14 foundation tests on macOS, Python 3.13.7, pytest 9.2.0 (0.70 s). PR-02 integration PR #3 merged into main (fb1afbcd). User verified 20/20 Python tests (5.25 s; one Starlette TestClient deprecation warning), native linux/aarch64 Docker, all five services, API create/list, generated documents, Celery ping and persistence after restart. The last three checks were confirmed by the user without raw logs. Create/list/read project registry generates mandatory documents before saving metadata. Worker runtime has no capture tasks yet. PR-03 Docker build and GUI launch succeeded according to the user; all six manual GUI acceptance checks passed (existing project, creation, validation, import, details, readiness). Standalone Vitest results and npm lockfile are not supplied. User approved completing PR-03 and proceeding.
 
 ## Technical decisions
 - Root CONTEXT.md is mandatory for this repository and every generated project.
@@ -47,7 +47,7 @@ PR-01 merged into main (25d2b459); user verified all 14 foundation tests on macO
 - English templates in PR-01; localization deferred.
 
 ## Known issues
-PR-02 local runtime checks passed as reported by the user. API assumes trusted local host; worker readiness not checked by API. Failed metadata writes can leave orphaned artifacts; manual recovery ID is returned. PR-03 GUI runtime verification and npm lockfile are pending. Capture, export, automated reconciliation, desktop, localization, resume and publishing remain deferred. Example URL is a placeholder.
+PR-02 local runtime checks passed as reported by the user. API assumes trusted local host; worker readiness not checked by API. Failed metadata writes can leave orphaned artifacts; manual recovery ID is returned. PR-03 standalone Vitest results and npm lockfile remain pending. Capture, export, automated reconciliation, desktop, localization, resume and publishing remain deferred. Example URL is a placeholder.
 
 ## Next steps
-Verify PR-03 frontend tests/build, Docker GUI, manual create/import/read, persistence and responsive layout. Merge after review, then PR-04 Browser & Screenshot Capture.
+Complete PR-03 on user approval; implement PR-04 Browser & Screenshot Capture. Record standalone frontend tests and lockfile when available.
