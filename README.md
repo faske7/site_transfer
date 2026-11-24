@@ -21,6 +21,6 @@ PR-01 supports configuration validation, planning and documentation scaffolding.
 
 Every generated project must include root CONTEXT.md and AGENTS.md. Existing files are never intentionally overwritten by init; select a new output directory if documentation already exists.
 
-PR-02 adds a local Docker runtime and project registry API; see [Docker setup](docs/DOCKER.md). The independent CLI remains available. React GUI, capture/analysis/comparison/pipeline and the required Tauri macOS app are later stages.
+PR-02 adds a local Docker runtime and project registry API; see [Docker setup](docs/DOCKER.md). The independent CLI remains available. PR-03 adds the React Studio GUI at http://localhost:8080/ when built with Docker. Capture/analysis/comparison/pipeline and the required Tauri macOS app are later stages. See [GUI setup](docs/GUI.md).
 
 See CONTEXT.md, AGENTS.md and SITE_TRANSFER_SPEC.md.
