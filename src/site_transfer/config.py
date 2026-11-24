@@ -45,6 +45,11 @@ def load_config(path: Path | str) -> dict:
                             parse_constant=_invalid_constant)
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ConfigError(f"Cannot read configuration: {exc}") from exc
+    return validate_config(config)
+
+
+def validate_config(config: object) -> dict:
+    """Validate an already decoded JSON value for CLI and API callers."""
     schema = json.loads(files("site_transfer").joinpath("resources", "transfer.schema.json").read_text(encoding="utf-8"))
     error = next(Draft202012Validator(schema).iter_errors(config), None)
     if error:
