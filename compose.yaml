@@ -1,0 +1,73 @@
+name: site-transfer
+x-runtime: &runtime
+  build: .
+  image: site-transfer-runtime:local
+  environment:
+    POSTGRES_HOST: db
+    POSTGRES_DB: site_transfer
+    POSTGRES_USER: studio
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    REDIS_URL: redis://redis:6379/0
+    PROJECT_ROOT: /data/projects
+  volumes:
+    - projects:/data/projects
+  restart: unless-stopped
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: site_transfer
+      POSTGRES_USER: studio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U studio -d site_transfer"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+  migrate:
+    <<: *runtime
+    command: ["python", "-m", "site_transfer.server.migrate"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+  api:
+    <<: *runtime
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${SITE_TRANSFER_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  worker:
+    <<: *runtime
+    command: ["celery", "-A", "site_transfer.server.worker:app", "worker", "--loglevel=INFO", "--concurrency=1"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+volumes:
+  postgres:
+  redis:
+  projects:

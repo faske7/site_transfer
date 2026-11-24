@@ -4,11 +4,11 @@
 Build a local-first website reference analysis platform that hands an implementation-ready evidence package to Codex, reducing repeated browser work and token usage. Deliver CLI, Web GUI and a mandatory macOS desktop application.
 
 ## Architecture
-src/site_transfer remains independent of the API and UI. PR-01 implements config, documentation, validation and CLI. Future API/worker call shared core services; Docker Compose manages FastAPI, PostgreSQL, Redis and Celery. React UI is shared with a Tauri desktop shell. See SITE_TRANSFER_SPEC.md for the approved nine-stage roadmap.
+src/site_transfer remains independent of the API and UI. PR-01 implements config, documentation, validation and CLI. PR-02 adds optional server adapters under src/site_transfer/server; Docker Compose manages FastAPI, PostgreSQL, Redis and Celery. React UI is shared with a Tauri desktop shell. See SITE_TRANSFER_SPEC.md for the approved nine-stage roadmap.
 
 ## Technology stack
 Implemented: Python 3.11+, setuptools, JSON Schema Draft 2020-12, Jinja2, pytest.
-Planned: FastAPI, PostgreSQL, Redis, Celery, React/TypeScript/Vite, Playwright Chromium, Tauri 2/Rust, Docker Compose with native arm64 support.
+PR-02 implementation: FastAPI, PostgreSQL 17, Redis 7, Celery and Docker Compose. Planned: React/TypeScript/Vite, Playwright Chromium, Tauri 2/Rust. Native arm64 runtime needs verification.
 
 ## Important files
 - pyproject.toml: dependencies and CLI entry point.
@@ -17,16 +17,22 @@ Planned: FastAPI, PostgreSQL, Redis, Celery, React/TypeScript/Vite, Playwright C
 - src/site_transfer/resources/: packaged mirrors; tests enforce parity.
 - examples/remaxdelux.json: synthetic sample configuration.
 - SITE_TRANSFER_SPEC.md: approved architecture and PR sequence.
+- compose.yaml, Dockerfile, docs/DOCKER.md: local runtime.
+- src/site_transfer/server/: API, registry, migration and worker.
 
 ## Development commands
 - python -m pip install -e '.[dev]'
 - python -m pytest
 - site-transfer validate examples/remaxdelux.json
 - site-transfer plan examples/remaxdelux.json
-Docker and UI commands are not available in PR-01.
+- python -m pip install -e '.[dev,server]'
+- docker compose config --quiet
+- docker compose up -d --build
+- curl -fsS http://localhost:8080/health/ready
+React GUI is not yet available.
 
 ## Current status
-PR-01 foundation is a draft awaiting runtime tests and review. Roadmap revised to Docker/Web GUI and mandatory Tauri app. No API, containers, browser capture or desktop app in PR-01.
+PR-01 merged into main (25d2b459); user verified all 14 foundation tests on macOS, Python 3.13.7, pytest 9.2.0 (0.70 s). PR-02 implementation was merged into the foundation branch, not main; a dedicated integration PR brings it to main. User verified 20/20 Python tests (5.25 s; one Starlette TestClient deprecation warning), native linux/aarch64 Docker, all five services, API create/list, generated documents, Celery ping and persistence after restart. The last three checks were confirmed by the user without raw logs. Create/list/read project registry generates mandatory documents before saving metadata. Worker runtime has no capture tasks yet.
 
 ## Technical decisions
 - Root CONTEXT.md is mandatory for this repository and every generated project.
@@ -38,7 +44,7 @@ PR-01 foundation is a draft awaiting runtime tests and review. Roadmap revised t
 - English templates in PR-01; localization deferred.
 
 ## Known issues
-Runtime tests not verified. Browser pipeline, API, GUI, desktop, localization, resume and publishing are not implemented in PR-01. Example URL is a placeholder.
+PR-02 local runtime checks passed as reported by the user. API assumes trusted local host; worker readiness not checked by API. Failed metadata writes can leave orphaned artifacts; manual recovery ID is returned. GUI, capture, export, automated reconciliation, desktop, localization, resume and publishing remain deferred. Example URL is a placeholder.
 
 ## Next steps
-Review/test PR-01. PR-02 Docker + Backend API. PR-03 Web GUI. Follow the nine-stage roadmap through mandatory PR-09 macOS app.
+Complete PR-02 integration into main; implement PR-03 Web GUI.

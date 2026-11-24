@@ -21,6 +21,6 @@ PR-01 supports configuration validation, planning and documentation scaffolding.
 
 Every generated project must include root CONTEXT.md and AGENTS.md. Existing files are never intentionally overwritten by init; select a new output directory if documentation already exists.
 
-The approved roadmap adds Docker Compose + FastAPI, React web GUI, capture/analysis/comparison/pipeline, and a required Tauri macOS app (Docker remains a prerequisite). The CLI stays independent. None of those later stages are implemented in PR-01.
+PR-02 adds a local Docker runtime and project registry API; see [Docker setup](docs/DOCKER.md). The independent CLI remains available. React GUI, capture/analysis/comparison/pipeline and the required Tauri macOS app are later stages.
 
 See CONTEXT.md, AGENTS.md and SITE_TRANSFER_SPEC.md.
