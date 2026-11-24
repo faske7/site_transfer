@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "source": {
+    "url": "https://example.com",
+    "pages": [
+      "/"
+    ]
+  },
+  "target": {
+    "project_name": "remaxdelux",
+    "backend": "Django",
+    "frontend": "JavaScript"
+  },
+  "browser": {
+    "engine": "chromium",
+    "headless": true,
+    "timeout_ms": 30000
+  },
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "discovery": {
+    "enabled": true,
+    "max_pages": 30
+  },
+  "interactions": {
+    "enabled": true
+  },
+  "measurements": {
+    "enabled": true
+  },
+  "assets": {
+    "enabled": true
+  },
+  "documentation": {
+    "language": "en"
+  },
+  "execution": {
+    "require_review_before_push": true,
+    "resume": true,
+    "retries": 2
+  }
+}
