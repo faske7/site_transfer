@@ -59,6 +59,21 @@ export default function CapturePanel({projectId}:{projectId:string}) {
         const src="/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/screenshots/"+i;
         return <figure key={a.path}><a href={src} target="_blank" rel="noreferrer"><img loading="lazy" src={src} alt={a.viewport+" screenshot of "+a.url}/></a><figcaption>{a.viewport} · {a.width} × {a.height}<small>{a.url}</small></figcaption></figure>;
       })}</div>
+      <h3>Interaction states</h3>
+      {job.manifest.interaction_manifest ? <>
+        <p>{(job.manifest.interaction_states??[]).filter(s=>s.status==="captured").length}/{(job.manifest.interaction_states??[]).length} states captured · separate viewport screenshots</p>
+        <a className="secondary" href={"/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/interactions"} target="_blank" rel="noreferrer">Interaction manifest (JSON)</a>
+        <div className="capture-grid">{(job.manifest.interaction_states??[]).map((state,i)=>{
+          const src="/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/interactions/"+i;
+          return <figure key={state.id+"-"+state.viewport}>
+            {state.status==="captured"&&<a href={src} target="_blank" rel="noreferrer"><img loading="lazy" src={src} alt={state.id+" "+state.viewport+" state"}/></a>}
+            <figcaption><strong>{state.id}</strong> · {state.action} · {state.viewport} · {state.status}<small>{state.url}</small>
+              {state.reason&&<small>{state.reason}</small>}
+              {state.expectation_verified===true&&<small>Visibility expectation verified</small>}
+            </figcaption>
+          </figure>;
+        })}</div>
+      </> : <p className="muted">No explicit state scenarios. Import a project JSON with interactions.scenarios to enable them; existing baseline captures remain unchanged.</p>}
       <h3>Assets &amp; Reference Kit</h3>
       {job.manifest.asset_manifest ? <p><a className="secondary" href={"/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/assets"} target="_blank" rel="noreferrer">Asset inventory ({job.manifest.asset_count??0} entries)</a></p> : <p className="muted">No asset inventory for this run.</p>}
       <p>Inventory only. Source asset licenses are unknown; verify permission before reuse.</p>

@@ -2,7 +2,7 @@
 import os
 from tempfile import NamedTemporaryFile
 from starlette.background import BackgroundTask
-from site_transfer.manifest import build_kit, evidence_file
+from site_transfer.manifest import build_kit, evidence_file, interaction_files
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -151,6 +151,41 @@ def screenshot(project_id: UUID, job_id: UUID, index: int):
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Screenshot not found") from exc
     return FileResponse(path, media_type="image/png", headers={"X-Content-Type-Options": "nosniff"})
+
+
+def _interaction_response(project_id, job_id, index=None):
+    job=jobs.get(project_id,job_id)
+    if job is None:
+        raise HTTPException(status_code=404,detail="Capture not found")
+    manifest=job["manifest"]
+    try:
+        files=interaction_files(manifest)
+        if index is None:
+            name="interaction-manifest.json"
+        else:
+            states=manifest.get("interaction_states",[])
+            if not 0<=index<len(states) or states[index]["status"]!="captured":
+                raise ValueError("Interaction screenshot unavailable")
+            name=states[index]["path"]
+        if name not in files:
+            raise ValueError("Interaction evidence unavailable")
+        path=evidence_file(run_root(project_id,job_id),name)
+        if digest(path)!=files[name]:
+            raise ValueError("Interaction checksum mismatch")
+    except (ValueError,OSError,KeyError,TypeError) as exc:
+        raise HTTPException(status_code=404,detail="Interaction evidence unavailable") from exc
+    return FileResponse(path,media_type="application/json" if index is None else "image/png",
+                        headers={"X-Content-Type-Options":"nosniff"})
+
+
+@app.get("/api/v1/projects/{project_id}/captures/{job_id}/interactions")
+def interaction_manifest(project_id: UUID,job_id: UUID):
+    return _interaction_response(project_id,job_id)
+
+
+@app.get("/api/v1/projects/{project_id}/captures/{job_id}/interactions/{index}")
+def interaction_screenshot(project_id: UUID,job_id: UUID,index: int):
+    return _interaction_response(project_id,job_id,index)
 
 
 def _design_response(project_id, job_id, index=None):

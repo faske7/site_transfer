@@ -15,3 +15,5 @@ Verification:
 - Create a new capture for an authorized reference; verify baseline screenshots, per-viewport JSON reports and aggregate tokens in the GUI.
 - Inspect actual font/color/spacing values against a known page; inspect history from PR-04 and repeat capture.
 - Optional: run the offline browser fixture in a test environment with Chromium installed (`python -m playwright install chromium`).
+
+PR-13 adds separate opt-in visual state screenshots; the legacy bounded hover observations above remain unchanged. See [interaction capture](INTERACTIONS.md).

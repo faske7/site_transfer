@@ -166,13 +166,17 @@ def chromium():
         thread.join(timeout=2)
 
 
-def context_for(browser, viewport, source_origin):
+def context_for(browser, viewport, source_origin, network_gate=None):
     context = browser.new_context(
         viewport={"width": viewport["width"], "height": viewport["height"]},
         device_scale_factor=1, is_mobile=viewport["width"] < 600,
         has_touch=viewport["width"] < 600, service_workers="block", accept_downloads=False,
     )
     def guard(route):
+        if network_gate is not None and network_gate.get('closed'):
+            network_gate['blocked'] = network_gate.get('blocked', 0) + 1
+            route.abort()
+            return
         request = route.request
         try:
             destination = origin(request.url)
