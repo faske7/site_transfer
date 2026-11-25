@@ -47,6 +47,11 @@ export default function CapturePanel({projectId}:{projectId:string}) {
         const src="/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/screenshots/"+i;
         return <figure key={a.path}><a href={src} target="_blank" rel="noreferrer"><img loading="lazy" src={src} alt={a.viewport+" screenshot of "+a.url}/></a><figcaption>{a.viewport} · {a.width} × {a.height}<small>{a.url}</small></figcaption></figure>;
       })}</div>
+      <h3>Assets &amp; Reference Kit</h3>
+      {job.manifest.asset_manifest ? <p><a className="secondary" href={"/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/assets"} target="_blank" rel="noreferrer">Asset inventory ({job.manifest.asset_count??0} entries)</a></p> : <p className="muted">No asset inventory for this run.</p>}
+      <p>Inventory only. Source asset licenses are unknown; verify permission before reuse.</p>
+      {["completed","partial"].includes(job.status) && (job.manifest.artifacts??[]).length>0 && <p><a className="primary" href={"/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/reference-kit"} download>Download Reference Kit (.zip)</a></p>}
+      <p className="muted">Review reference evidence before sharing. The kit contains only the selected run, generated Codex instructions and observed evidence.</p>
       <h3>Design intelligence</h3>
       {job.manifest.design_tokens && <p><a className="secondary" href={"/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/design-tokens"} target="_blank" rel="noreferrer">Open design tokens and responsive observations (JSON)</a></p>}
       {(job.manifest.design_reports??[]).length===0 && <p className="muted">No design reports recorded for this run. Older PR-04 captures remain available; start a new capture if you need design data.</p>}

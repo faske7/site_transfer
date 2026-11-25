@@ -1,5 +1,8 @@
 """Local Studio API; no browser execution or GitHub publishing in PR-02."""
 import os
+from tempfile import NamedTemporaryFile
+from starlette.background import BackgroundTask
+from site_transfer.manifest import build_kit, evidence_file
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -13,11 +16,11 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from site_transfer.config import ConfigError, validate_config
 from site_transfer.documentation import initialize_project
 from . import db, jobs
-from .storage import screenshot_path, design_path
+from .storage import screenshot_path, design_path, run_root
 from .worker import run_capture
 from .settings import project_root, redis_url
 
-app = FastAPI(title="Site Transfer Studio", version="0.5.0")
+app = FastAPI(title="Site Transfer Studio", version="0.6.0")
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
 
@@ -151,6 +154,41 @@ def design_report(project_id: UUID, job_id: UUID, index: int):
 @app.get("/api/v1/projects/{project_id}/captures/{job_id}/design-tokens")
 def design_tokens(project_id: UUID, job_id: UUID):
     return _design_response(project_id, job_id)
+
+
+@app.get("/api/v1/projects/{project_id}/captures/{job_id}/assets")
+def asset_manifest(project_id: UUID, job_id: UUID):
+    job = jobs.get(project_id, job_id)
+    if job is None or job["manifest"].get("asset_manifest") != "asset-manifest.json":
+        raise HTTPException(status_code=404, detail="Asset inventory unavailable")
+    try:
+        path = evidence_file(run_root(project_id, job_id), "asset-manifest.json")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Asset inventory missing") from exc
+    return FileResponse(path, media_type="application/json", headers={"X-Content-Type-Options":"nosniff"})
+
+
+@app.get("/api/v1/projects/{project_id}/captures/{job_id}/reference-kit")
+def reference_kit(project_id: UUID, job_id: UUID):
+    job = jobs.get(project_id, job_id)
+    project = db.get_project(project_id)
+    if job is None or project is None:
+        raise HTTPException(status_code=404, detail="Capture not found")
+    if job["status"] not in ("completed", "partial"):
+        raise HTTPException(status_code=409, detail="Select a completed or partial capture")
+    with NamedTemporaryFile(suffix=".zip", delete=False) as handle:
+        path = Path(handle.name)
+    try:
+        build_kit(project["config"], job, run_root(project_id, job_id), path)
+    except (ValueError, OSError, KeyError) as exc:
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail="Reference kit unavailable: " + str(exc)[:200]) from exc
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+    return FileResponse(path, media_type="application/zip", filename=f"reference-kit-{job_id}.zip",
+                        headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"},
+                        background=BackgroundTask(path.unlink, missing_ok=True))
 
 
 # The production UI is served by the API on the same origin. No catch-all route

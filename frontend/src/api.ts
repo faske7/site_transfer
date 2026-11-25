@@ -10,7 +10,7 @@ export type ProjectPage = { items: Project[]; limit: number; offset: number };
 
 export type Capture = {
   id: string; status: string; error: string | null; created_at: string;
-  manifest: { design_tokens?:string; design_reports?:{path:string;url:string;viewport:string;screenshot_index:number;element_count:number;hover_count:number;animation_count:number}[]; completed?: number; total?: number; artifacts?: {path:string;url:string;viewport:string;width:number;height:number}[]; errors?: {url:string;viewport:string;error:string}[] };
+  manifest: { asset_manifest?:string; asset_count?:number; design_tokens?:string; design_reports?:{path:string;url:string;viewport:string;screenshot_index:number;element_count:number;hover_count:number;animation_count:number}[]; completed?: number; total?: number; artifacts?: {path:string;url:string;viewport:string;width:number;height:number}[]; errors?: {url:string;viewport:string;error:string}[] };
 };
 export type Transport = (path: string, init?: RequestInit) => Promise<Response>;
 // The desktop adapter can supply a transport in PR-09; web uses same-origin fetch.
