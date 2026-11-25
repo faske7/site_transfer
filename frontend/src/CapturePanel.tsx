@@ -35,7 +35,7 @@ export default function CapturePanel({projectId}:{projectId:string}) {
   const job=items.find(x=>x.id===selected) ?? items[0];
   return <div className="capture-panel">
     <h3>Reference capture</h3>
-    <p>Public reference routes · desktop and mobile · immutable run history.</p>
+    <p>Public reference routes · desktop and mobile · computed design evidence · immutable run history.</p>
     <label className="capture-consent"><input type="checkbox" checked={authorized} onChange={e=>setAuthorized(e.target.checked)}/> I am authorized to capture this reference site.</label>
     <button className="primary" disabled={!loaded||!authorized||active||busy} onClick={()=>void start()}>{active?"Capture in progress":busy?"Starting…":"Start capture"}</button>
     {error&&<p role="alert" className="alert error">{error}</p>}
@@ -47,6 +47,13 @@ export default function CapturePanel({projectId}:{projectId:string}) {
         const src="/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/screenshots/"+i;
         return <figure key={a.path}><a href={src} target="_blank" rel="noreferrer"><img loading="lazy" src={src} alt={a.viewport+" screenshot of "+a.url}/></a><figcaption>{a.viewport} · {a.width} × {a.height}<small>{a.url}</small></figcaption></figure>;
       })}</div>
+      <h3>Design intelligence</h3>
+      {job.manifest.design_tokens && <p><a className="secondary" href={"/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/design-tokens"} target="_blank" rel="noreferrer">Open design tokens and responsive observations (JSON)</a></p>}
+      {(job.manifest.design_reports??[]).length===0 && <p className="muted">No design reports recorded for this run. Older PR-04 captures remain available; start a new capture if you need design data.</p>}
+      {(job.manifest.design_reports??[]).map((report,i)=><div className="project-row" key={report.path}>
+        <span><strong>{report.viewport} · {report.element_count} sampled elements</strong><small>{report.url}</small><small>{report.hover_count} hover attempts · {report.animation_count} observed animations</small></span>
+        <a className="secondary" href={"/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/design/"+i} target="_blank" rel="noreferrer">JSON report</a>
+      </div>)}
       {(job.manifest.errors??[]).map((e,i)=><p key={i} className="alert error">{e.viewport} · {e.url}: {e.error}</p>)}
     </>}
   </div>;
