@@ -15,12 +15,14 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from site_transfer.config import ConfigError, validate_config
 from site_transfer.documentation import initialize_project
-from . import db, jobs
+from . import db, jobs, comparisons
+from threading import Lock
+from pydantic import BaseModel
 from .storage import screenshot_path, design_path, run_root
 from .worker import run_capture
 from .settings import project_root, redis_url
 
-app = FastAPI(title="Site Transfer Studio", version="0.6.0")
+app = FastAPI(title="Site Transfer Studio", version="0.7.0")
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
 
@@ -189,6 +191,51 @@ def reference_kit(project_id: UUID, job_id: UUID):
     return FileResponse(path, media_type="application/zip", filename=f"reference-kit-{job_id}.zip",
                         headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"},
                         background=BackgroundTask(path.unlink, missing_ok=True))
+
+
+class ComparisonRequest(BaseModel):
+    reference_run: UUID
+    implementation_project: UUID
+    implementation_run: UUID
+
+
+comparison_lock = Lock()
+
+
+@app.post("/api/v1/projects/{project_id}/comparisons", status_code=201)
+def create_comparison(project_id: UUID, payload: ComparisonRequest):
+    if not comparison_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Another comparison is in progress")
+    try:
+        return comparisons.create(project_id,payload.reference_run,payload.implementation_project,payload.implementation_run)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404,detail="Capture not found") from exc
+    except (ValueError,OSError,KeyError) as exc:
+        raise HTTPException(status_code=422,detail=str(exc)[:250]) from exc
+    finally:
+        comparison_lock.release()
+
+
+@app.get("/api/v1/projects/{project_id}/comparisons")
+def list_comparisons(project_id: UUID):
+    return {"items":comparisons.list_results(project_id)}
+
+
+@app.get("/api/v1/projects/{project_id}/comparisons/{comparison_id}")
+def comparison_report(project_id: UUID, comparison_id: UUID):
+    try:
+        return comparisons.read(project_id,comparison_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404,detail="Comparison not found") from exc
+
+
+@app.get("/api/v1/projects/{project_id}/comparisons/{comparison_id}/diff/{index}")
+def comparison_diff(project_id: UUID, comparison_id: UUID, index: int):
+    try:
+        path=comparisons.diff_path(project_id,comparison_id,index)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404,detail="Diff not found") from exc
+    return FileResponse(path,media_type="image/png",headers={"X-Content-Type-Options":"nosniff"})
 
 
 # The production UI is served by the API on the same origin. No catch-all route

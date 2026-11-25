@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import CapturePanel from "./CapturePanel";
+import ComparisonPanel from "./ComparisonPanel";
 import { api, newConfig } from "./api";
 import type { Config, Health, Project } from "./api";
 
-const stages = ["Design intelligence", "Reference kit", "Visual comparison", "Publish"];
+const stages = ["Pipeline", "Publish", "Desktop app"];
 type Screen = "dashboard" | "projects" | "new";
 function message(error: unknown) { return error instanceof Error ? error.message : String(error); }
 
@@ -88,7 +89,7 @@ export default function App() {
       </nav>
       <div className="nav-label">PIPELINE / UPCOMING</div>
       {stages.map(stage => <div className="future" key={stage}>{stage}</div>)}
-      <div className="sidebar-bottom"><span className={health?.status === "ready" ? "dot green" : "dot"} />{health?.status === "ready" ? "Local runtime ready" : "Runtime not confirmed"}<small>PR-04 · Reference capture</small></div>
+      <div className="sidebar-bottom"><span className={health?.status === "ready" ? "dot green" : "dot"} />{health?.status === "ready" ? "Local runtime ready" : "Runtime not confirmed"}<small>PR-07 · Visual comparison</small></div>
     </aside>
     <main>
       <header><div><div className="eyebrow">WORKSPACE / {screen.toUpperCase()}</div><h1>{screen === "dashboard" ? "Overview" : screen === "new" ? "New transfer" : selected ? selected.config.target.project_name : "Projects"}</h1></div>
@@ -117,7 +118,7 @@ export default function App() {
         <dl><dt>Reference</dt><dd>{selected.config.source.url}</dd><dt>Backend</dt><dd>{selected.config.target.backend ?? "Not specified"}</dd><dt>Frontend</dt><dd>{selected.config.target.frontend ?? "Not specified"}</dd><dt>Project ID</dt><dd>{selected.id}</dd><dt>Created</dt><dd>{new Date(selected.created_at).toLocaleString()}</dd></dl>
         <h3>Generated project documents</h3><p>CONTEXT.md · AGENTS.md · TASK.md · README.md</p>
         <h3>Configuration</h3><pre>{JSON.stringify(selected.config,null,2)}</pre>
-        <CapturePanel key={selected.id} projectId={selected.id}/><p className="muted">Design analysis, comparison and publication arrive in later stages.</p>
+        <CapturePanel key={selected.id} projectId={selected.id}/><ComparisonPanel key={"compare-"+selected.id} projectId={selected.id}/><p className="muted">Publication arrives in a later stage.</p>
       </section>}
       {screen === "new" && <section className="panel form-panel">
         <h2>Project configuration</h2><p>Enter reference and target details or import an existing JSON config.</p>
