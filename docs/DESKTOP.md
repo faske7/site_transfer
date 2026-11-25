@@ -16,7 +16,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 npm run build
 ```
 
-Artifacts expected in desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/app/Site Transfer.app and bundle/dmg/*.dmg. Copy app to Applications or install from DMG. Actual compilation and packaging must be verified on macOS. Personal unsigned build only; distribution signing/notarization is separate. Generated runtime resources are tracked-source snapshots from HEAD, not local working-tree edits.
+Artifacts expected in desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/app/Site Transfer.app and bundle/dmg/*.dmg. Copy app to Applications or install from DMG. Local Apple Silicon compilation, app launch and DMG build/check were confirmed by the user on 2026-11-25; raw packaging log and artifact hashes were not supplied. Personal unsigned build only; distribution signing/notarization is separate. Generated runtime resources are tracked-source snapshots from HEAD, not local working-tree edits.
 
 ## Existing runtime migration
 
@@ -33,4 +33,4 @@ Do not delete volumes or change existing PostgreSQL password. Close active jobs 
 - Install updated bundle, verify data and volumes preserved. Removing app does not remove Docker data.
 - Run a fresh install separately only after backing up existing data; do not delete volumes to test.
 
-Limitations: no automatic Docker Desktop installation/start, no remote daemon, no arbitrary path import UI, no auto-update or notarization, no guaranteed full embedded downloads/new tabs. Native build, tests and real launch pending. npm and Cargo lockfiles need to be committed after local verification. Synchronous host subprocesses run in blocking worker with time limits; a timeout can leave Compose operations in progress. No cross-process desktop singleton or hardened browser isolation. Review runtime state before retrying.
+Limitations: no automatic Docker Desktop installation/start, no remote daemon, no arbitrary path import UI, no auto-update or notarization, no guaranteed full embedded downloads/new tabs. Six Rust tests passed; the ten-item desktop acceptance checklist was confirmed by the user. Separate unavailable-Docker, occupied-port, fresh-install, upgrade/uninstall and capability-boundary tests remain pending. npm and Cargo lockfiles need to be committed after local verification. Synchronous host subprocesses run in blocking worker with time limits; a timeout can leave Compose operations in progress. No cross-process desktop singleton or hardened browser isolation. Review runtime state before retrying.
