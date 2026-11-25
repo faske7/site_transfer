@@ -34,3 +34,5 @@ PR-06 adds bounded asset inventory and portable Codex Reference Kit export. See 
 PR-07 adds saved-run visual comparison, pixel diffs and sampled structural reports. See [comparison](docs/COMPARISON.md).
 
 PR-08 adds capture-to-kit pipeline and reviewed host GitHub publication. See [pipeline](docs/PIPELINE.md).
+
+PR-09 adds native macOS Tauri controller and bundled Docker runtime. See [desktop build and migration](docs/DESKTOP.md).

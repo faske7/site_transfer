@@ -1,0 +1,13 @@
+{
+  "name": "site-transfer-desktop",
+  "version": "0.9.0",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri",
+    "prepareRuntime": "bash scripts/prepare-runtime.sh",
+    "build": "bash scripts/build-macos.sh"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}
