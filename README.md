@@ -17,11 +17,11 @@ python -m pytest
 
 The example uses a placeholder URL; replace it with an authorized reference before capture.
 
-PR-01 supports configuration validation, planning and documentation scaffolding. Capture, measurements, asset analysis, visual verification, publication and end-to-end execution are future stages. No browser or network calls are made by these commands.
+The foundation commands validate configuration and scaffold documentation without browser/network calls. The Docker Studio separately supports authorized capture, design sampling, asset inventory, kit export, saved-run comparison and capture-to-kit pipelines.
 
 Every generated project must include root CONTEXT.md and AGENTS.md. Existing files are never intentionally overwritten by init; select a new output directory if documentation already exists.
 
-PR-02 adds a local Docker runtime and project registry API; see [Docker setup](docs/DOCKER.md). The independent CLI remains available. PR-03 adds the React Studio GUI at http://localhost:8080/ when built with Docker. Capture/analysis/comparison/pipeline and the required Tauri macOS app are later stages. See [GUI setup](docs/GUI.md).
+PR-02 adds a local Docker runtime and project registry API; see [Docker setup](docs/DOCKER.md). The independent CLI remains available. PR-03 adds the React Studio GUI at http://localhost:8080/ when built with Docker. The Tauri desktop controller reuses this GUI. See [GUI setup](docs/GUI.md).
 
 See CONTEXT.md, AGENTS.md and SITE_TRANSFER_SPEC.md.
 
@@ -34,3 +34,9 @@ PR-06 adds bounded asset inventory and portable Codex Reference Kit export. See 
 PR-07 adds saved-run visual comparison, pixel diffs and sampled structural reports. See [comparison](docs/COMPARISON.md).
 
 PR-08 adds capture-to-kit pipeline and reviewed host GitHub publication. See [pipeline](docs/PIPELINE.md).
+
+PR-09 adds native macOS Tauri controller and bundled Docker runtime. See [desktop build and migration](docs/DESKTOP.md).
+
+## MVP acceptance — 2026-11-25
+
+All nine initial stages accepted by the user; PR-09 desktop acceptance recorded for merge. See [technical report](docs/TECHNICAL_REPORT.md) and [proposed development roadmap](docs/ROADMAP.md). This is a personal-use MVP, not a hardened public release.

@@ -1,0 +1,17 @@
+{
+  "identifier": "runtime-controller",
+  "description": "Only the bundled local controller may manage the Site Transfer runtime.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "allow-runtime-status",
+    "allow-initialize-runtime",
+    "allow-start-runtime",
+    "allow-stop-runtime",
+    "allow-open-studio",
+    "allow-open-browser",
+    "allow-open-data-folder",
+    "allow-export-project"
+  ]
+}
