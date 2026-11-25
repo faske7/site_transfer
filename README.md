@@ -40,3 +40,5 @@ PR-09 adds native macOS Tauri controller and bundled Docker runtime. See [deskto
 ## MVP acceptance — 2026-11-25
 
 All nine initial stages accepted by the user; PR-09 desktop acceptance recorded for merge. See [technical report](docs/TECHNICAL_REPORT.md) and [proposed development roadmap](docs/ROADMAP.md). This is a personal-use MVP, not a hardened public release.
+
+PR-10 adds durable lifecycle recovery and worker readiness. See [upgrade and recovery](docs/RECOVERY.md); stop old API and worker before upgrading, and rebuild the desktop bundle.

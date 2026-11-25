@@ -32,7 +32,7 @@ export default function CapturePanel({projectId}:{projectId:string}) {
     catch(e){if(alive.current)setError(e instanceof Error ? e.message : String(e));}
     finally{if(alive.current)setBusy(false);}
   }
-  async function action(kind:"cancel"|"kit",id:string){setBusy(true);setError("");try{if(kind==="cancel")await api.cancelCapture(projectId,id);else await api.buildKit(projectId,id);}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
+  async function action(kind:"cancel"|"kit"|"retry",id:string){setBusy(true);setError("");try{if(kind==="cancel")await api.cancelCapture(projectId,id);else if(kind==="kit")await api.buildKit(projectId,id);else {const next=await api.retryCapture(projectId,id);setItems(old=>[next,...old.filter(x=>x.id!==next.id)]);setSelected(next.id);setAuthorized(false); }}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
   const job=items.find(x=>x.id===selected) ?? items[0];
   return <div className="capture-panel">
     <h3>Reference capture</h3>
@@ -44,11 +44,15 @@ export default function CapturePanel({projectId}:{projectId:string}) {
     {job&&<>
       <label>Capture run<select value={job.id} onChange={e=>setSelected(e.target.value)}>{items.map(x=><option key={x.id} value={x.id}>{new Date(x.created_at).toLocaleString()} · {x.status}</option>)}</select></label>
       <p role="status">Status: <strong>{job.status}</strong> · {job.manifest.completed??0}/{job.manifest.total??0} attempts</p>
-      {["queued","running"].includes(job.status)&&<button className="secondary" disabled={busy||job.cancel_requested} onClick={()=>void action("cancel",job.id)}>{job.cancel_requested?"Cancellation requested":"Cancel capture"}</button>}
+      {(["queued","running"].includes(job.status)||["pending","building"].includes(job.kit_status??"")&&["completed","partial"].includes(job.status))&&<button className="secondary" disabled={busy||job.cancel_requested} onClick={()=>void action("cancel",job.id)}>{job.cancel_requested?"Cancellation requested" :"Cancel active stage"}</button>}
+      <p>Capture attempt {job.attempt??1}/3 · Dispatch reservations {job.dispatch_attempts??0} · Kit attempt {job.kit_attempt??0}/3</p>
+      {job.heartbeat_at&&<p>Last recorded progress: {new Date(job.heartbeat_at).toLocaleString()}</p>}
+      {job.status==="failed"&&(job.attempt??1)<3&&<button className="secondary" disabled={busy||active||!authorized} onClick={()=>void action("retry",job.id)}>Retry capture as new run</button>}
+      <a className="secondary" href={"/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/events"} target="_blank" rel="noreferrer">Lifecycle events (JSON)</a>
       <h3>Pipeline checkpoint</h3>
       <p>Kit: {job.kit_status??"not_requested"}</p>
       {job.kit_info?.error&&<p role="alert">{job.kit_info.error}</p>}
-      {["completed","partial"].includes(job.status)&&!job.cancel_requested&&["pending","failed","not_requested"].includes(job.kit_status??"not_requested")&&<button className="secondary" disabled={busy} onClick={()=>void action("kit",job.id)}>Build / retry kit from saved capture</button>}
+      {["completed","partial"].includes(job.status)&&!job.cancel_requested&&["failed","not_requested"].includes(job.kit_status??"not_requested")&&(job.kit_attempt??0)<3&&<button className="secondary" disabled={busy} onClick={()=>void action("kit",job.id)}>Build / retry kit from saved capture</button>}
       {job.kit_status==="ready"&&<><p>SHA256: <code>{job.kit_info?.sha256}</code></p><a className="primary" href={"/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/pipeline-kit"} download>Download pipeline kit</a><p>Review ZIP locally before using site-transfer publish.</p></>}
       {job.error&&<p className="alert error">{job.error}</p>}
       <div className="capture-grid">{(job.manifest.artifacts??[]).map((a,i)=>{

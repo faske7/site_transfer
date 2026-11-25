@@ -19,11 +19,11 @@ from . import db, jobs, comparisons
 from threading import Lock
 from pydantic import BaseModel
 from .storage import screenshot_path, design_path, run_root
-from .worker import run_capture, run_kit
+from .recovery import lifespan
 from site_transfer.manifest import digest
 from .settings import project_root, redis_url
 
-app = FastAPI(title="Site Transfer Studio", version="0.8.0")
+app = FastAPI(title="Site Transfer Studio", version="0.9.1", lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
 
@@ -46,9 +46,11 @@ def live():
 
 @app.get("/health/ready")
 def ready():
-    checks = {"database": False, "redis": False}
+    checks = {"database": False, "redis": False, "worker": False}
     try:
         checks["database"] = db.ready()
+        if checks["database"]:
+            checks["worker"] = jobs.worker_ready()
     except psycopg.Error:
         pass
     try:
@@ -111,11 +113,7 @@ def start_capture(project_id: UUID, payload: dict = Body(...)):
         item = jobs.create(job_id, project_id, pipeline=payload.get('pipeline', False))
     except psycopg.errors.UniqueViolation as exc:
         raise HTTPException(status_code=409, detail="A capture is already active") from exc
-    try:
-        run_capture.apply_async(args=[str(job_id)], task_id=str(job_id), retry=False)
-    except Exception as exc:
-        jobs.finish(job_id, "failed", "Queue dispatch failed", expected="queued")
-        raise HTTPException(status_code=503, detail="Could not dispatch capture") from exc
+    # Durable queued row is the dispatch intent; no broker call in HTTP transaction.
     return item
 
 
@@ -243,7 +241,7 @@ def comparison_diff(project_id: UUID, comparison_id: UUID, index: int):
 def cancel_capture(project_id: UUID, job_id: UUID):
     item=jobs.request_cancel(project_id,job_id)
     if item is None:
-        raise HTTPException(status_code=409,detail="Capture is not active")
+        raise HTTPException(status_code=409,detail="No cancellable stage")
     return item
 
 
@@ -252,13 +250,31 @@ def retry_kit(project_id: UUID, job_id: UUID):
     item=jobs.get(project_id,job_id)
     if item is None:
         raise HTTPException(status_code=404,detail="Capture not found")
-    if item["status"] not in ("completed","partial") or item["cancel_requested"] or item["kit_status"] not in ("pending","failed","not_requested"):
-        raise HTTPException(status_code=409,detail="Kit cannot be built in current state")
-    try:
-        run_kit.apply_async(args=[str(project_id),str(job_id)],retry=False)
-    except Exception as exc:
-        raise HTTPException(status_code=503,detail="Kit dispatch failed") from exc
+    if jobs.request_kit(project_id,job_id) is None:
+        raise HTTPException(status_code=409,detail="Kit cannot be built in current state or retry budget exhausted")
     return {"status":"submitted"}
+
+
+@app.post("/api/v1/projects/{project_id}/captures/{job_id}/retry",status_code=202)
+def retry_capture(project_id: UUID,job_id: UUID,payload: dict=Body(...)):
+    if payload!={"authorized":True}:
+        raise HTTPException(status_code=422,detail="Confirm authorization to repeat capture")
+    if jobs.get(project_id,job_id) is None:
+        raise HTTPException(status_code=404,detail="Capture not found")
+    try:
+        item=jobs.retry_capture(project_id,job_id)
+    except psycopg.errors.UniqueViolation as exc:
+        raise HTTPException(status_code=409,detail="A capture is already active") from exc
+    if item is None:
+        raise HTTPException(status_code=409,detail="Capture is not retryable or retry budget exhausted")
+    return item
+
+
+@app.get("/api/v1/projects/{project_id}/captures/{job_id}/events")
+def lifecycle_events(project_id: UUID,job_id: UUID):
+    if jobs.get(project_id,job_id) is None:
+        raise HTTPException(status_code=404,detail="Capture not found")
+    return {"items":jobs.events(project_id,job_id)}
 
 
 @app.get("/api/v1/projects/{project_id}/captures/{job_id}/pipeline-kit")
@@ -267,7 +283,13 @@ def pipeline_kit(project_id: UUID, job_id: UUID):
     if item is None or item["kit_status"]!="ready":
         raise HTTPException(status_code=404,detail="Pipeline kit unavailable")
     try:
-        path=evidence_file(run_root(project_id,job_id),"reference-kit.zip")
+        name=item["kit_info"].get("path","reference-kit.zip")
+        if name!="reference-kit.zip":
+            parts=Path(name).parts
+            if len(parts)!=2 or parts[0]!="kits" or Path(parts[1]).suffix!=".zip":
+                raise ValueError("Invalid kit path")
+            UUID(Path(parts[1]).stem)
+        path=evidence_file(run_root(project_id,job_id),name)
         if digest(path)!=item["kit_info"].get("sha256"):
             raise ValueError("Checksum mismatch")
     except (ValueError,OSError) as exc:

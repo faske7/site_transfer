@@ -9,7 +9,7 @@ export type Health = { status: string; checks?: Record<string, boolean> };
 export type ProjectPage = { items: Project[]; limit: number; offset: number };
 
 export type Capture = {
-  id: string; status: string; error: string | null; created_at: string; pipeline_enabled?:boolean; cancel_requested?:boolean; kit_status?:string; kit_info?:{sha256?:string;bytes?:number;error?:string};
+  id: string; status: string; error: string | null; created_at: string; attempt?:number; kit_attempt?:number; retry_of?:string|null; heartbeat_at?:string|null; lease_until?:string|null; dispatch_attempts?:number; pipeline_enabled?:boolean; cancel_requested?:boolean; kit_status?:string; kit_info?:{sha256?:string;bytes?:number;error?:string};
   manifest: { asset_manifest?:string; asset_count?:number; design_tokens?:string; design_reports?:{path:string;url:string;viewport:string;screenshot_index:number;element_count:number;hover_count:number;animation_count:number}[]; completed?: number; total?: number; artifacts?: {path:string;url:string;viewport:string;width:number;height:number}[]; errors?: {url:string;viewport:string;error:string}[] };
 };
 export type ComparisonSummary = {id:string;reference_run:string;implementation_run:string;passes:boolean};
@@ -40,6 +40,7 @@ export function createClient(transport: Transport = (path, init) => fetch(path, 
     captures: (id:string) => request<{items:Capture[]}>("/api/v1/projects/" + encodeURIComponent(id) + "/captures"),
     startCapture: (id:string,pipeline=false) => request<Capture>("/api/v1/projects/" + encodeURIComponent(id) + "/captures", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(pipeline?{authorized:true,pipeline:true}:{authorized:true})}),
     cancelCapture: (id:string,run:string) => request<Capture>("/api/v1/projects/"+encodeURIComponent(id)+"/captures/"+encodeURIComponent(run)+"/cancel",{method:"POST"}),
+    retryCapture: (id:string,run:string) => request<Capture>("/api/v1/projects/"+encodeURIComponent(id)+"/captures/"+encodeURIComponent(run)+"/retry",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({authorized:true})}),
     buildKit: (id:string,run:string) => request<{status:string}>("/api/v1/projects/"+encodeURIComponent(id)+"/captures/"+encodeURIComponent(run)+"/build-kit",{method:"POST"}),
     list: (offset = 0) => request<ProjectPage>("/api/v1/projects?limit=50&offset=" + offset),
     get: (id: string) => request<Project>("/api/v1/projects/" + encodeURIComponent(id)),
