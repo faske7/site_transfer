@@ -24,6 +24,19 @@ def migrate():
             )
         """)
         conn.execute("INSERT INTO studio_schema (version) VALUES (1) ON CONFLICT DO NOTHING")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS capture_jobs (
+                id uuid PRIMARY KEY,
+                project_id uuid NOT NULL REFERENCES projects(id),
+                status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','completed','partial','failed')),
+                manifest jsonb NOT NULL DEFAULT '{}'::jsonb,
+                error text,
+                created_at timestamptz NOT NULL DEFAULT now(),
+                updated_at timestamptz NOT NULL DEFAULT now()
+            )
+        """)
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS capture_active_project ON capture_jobs(project_id) WHERE status IN ('queued','running')")
+        conn.execute("INSERT INTO studio_schema (version) VALUES (2) ON CONFLICT DO NOTHING")
 
 
 def create_project(project_id: UUID, config: dict) -> dict:
@@ -49,4 +62,4 @@ def list_projects(limit: int, offset: int) -> list[dict]:
 
 def ready() -> bool:
     with connect() as conn:
-        return conn.execute("SELECT version FROM studio_schema WHERE version = 1").fetchone() is not None
+        return conn.execute("SELECT version FROM studio_schema WHERE version = 2").fetchone() is not None

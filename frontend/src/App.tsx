@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import CapturePanel from "./CapturePanel";
 import { api, newConfig } from "./api";
 import type { Config, Health, Project } from "./api";
 
-const stages = ["Capture", "Design intelligence", "Reference kit", "Visual comparison", "Publish"];
+const stages = ["Design intelligence", "Reference kit", "Visual comparison", "Publish"];
 type Screen = "dashboard" | "projects" | "new";
 function message(error: unknown) { return error instanceof Error ? error.message : String(error); }
 
@@ -87,7 +88,7 @@ export default function App() {
       </nav>
       <div className="nav-label">PIPELINE / UPCOMING</div>
       {stages.map(stage => <div className="future" key={stage}>{stage}</div>)}
-      <div className="sidebar-bottom"><span className={health?.status === "ready" ? "dot green" : "dot"} />{health?.status === "ready" ? "Local runtime ready" : "Runtime not confirmed"}<small>PR-03 · GUI foundation</small></div>
+      <div className="sidebar-bottom"><span className={health?.status === "ready" ? "dot green" : "dot"} />{health?.status === "ready" ? "Local runtime ready" : "Runtime not confirmed"}<small>PR-04 · Reference capture</small></div>
     </aside>
     <main>
       <header><div><div className="eyebrow">WORKSPACE / {screen.toUpperCase()}</div><h1>{screen === "dashboard" ? "Overview" : screen === "new" ? "New transfer" : selected ? selected.config.target.project_name : "Projects"}</h1></div>
@@ -96,11 +97,11 @@ export default function App() {
       {error && <div className="alert error" role="alert">{error}</div>}
       {notice && <div className="alert success" role="status">{notice}</div>}
       {screen === "dashboard" && <>
-        <section className="hero"><div className="eyebrow">REFERENCE-DRIVEN DEVELOPMENT</div><h2>From reference to implementation.</h2><p>Organize website transfer projects and prepare evidence for coding agents. Browser capture arrives in PR-04.</p><button className="primary" onClick={() => navigate("new")}>New transfer +</button></section>
+        <section className="hero"><div className="eyebrow">REFERENCE-DRIVEN DEVELOPMENT</div><h2>From reference to implementation.</h2><p>Organize website transfer projects and prepare evidence for coding agents. Open a project to start reference capture.</p><button className="primary" onClick={() => navigate("new")}>New transfer +</button></section>
         <div className="metrics">
           <div className="panel"><div className="eyebrow">API / DATABASE / REDIS</div><h2>{health?.status ?? "Unknown"}</h2>{health?.checks && Object.entries(health.checks).map(([key,ok]) => <div key={key}>{key}: {ok ? "Ready" : "Unavailable"}</div>)}</div>
           <div className="panel"><div className="eyebrow">PROJECTS ON THIS PAGE</div><h2>{loading ? "…" : items.length}</h2><p>Persistent project registry</p></div>
-          <div className="panel"><div className="eyebrow">CAPTURE ENGINE</div><h2>Pending</h2><p>No browser jobs are executed yet.</p></div>
+          <div className="panel"><div className="eyebrow">CAPTURE ENGINE</div><h2>Available</h2><p>Start a capture from a project. Worker readiness is not verified here.</p></div>
         </div>
       </>}
       {(screen === "dashboard" || screen === "projects") && !selected && <>
@@ -116,7 +117,7 @@ export default function App() {
         <dl><dt>Reference</dt><dd>{selected.config.source.url}</dd><dt>Backend</dt><dd>{selected.config.target.backend ?? "Not specified"}</dd><dt>Frontend</dt><dd>{selected.config.target.frontend ?? "Not specified"}</dd><dt>Project ID</dt><dd>{selected.id}</dd><dt>Created</dt><dd>{new Date(selected.created_at).toLocaleString()}</dd></dl>
         <h3>Generated project documents</h3><p>CONTEXT.md · AGENTS.md · TASK.md · README.md</p>
         <h3>Configuration</h3><pre>{JSON.stringify(selected.config,null,2)}</pre>
-        <p className="muted">Capture, comparison and publication are not available in this stage.</p>
+        <CapturePanel key={selected.id} projectId={selected.id}/><p className="muted">Design analysis, comparison and publication arrive in later stages.</p>
       </section>}
       {screen === "new" && <section className="panel form-panel">
         <h2>Project configuration</h2><p>Enter reference and target details or import an existing JSON config.</p>
@@ -132,7 +133,7 @@ export default function App() {
         </form>
         <p className="muted">This creates a documentation scaffold only; it does not visit the reference site.</p>
       </section>}
-      <footer>Site Transfer Studio · Local workspace · Capture not implemented in PR-03</footer>
+      <footer>Site Transfer Studio · Local workspace · Reference capture</footer>
     </main>
   </div>;
 }

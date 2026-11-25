@@ -8,6 +8,10 @@ export type Project = { id: string; config: Config; created_at: string };
 export type Health = { status: string; checks?: Record<string, boolean> };
 export type ProjectPage = { items: Project[]; limit: number; offset: number };
 
+export type Capture = {
+  id: string; status: string; error: string | null; created_at: string;
+  manifest: { completed?: number; total?: number; artifacts?: {path:string;url:string;viewport:string;width:number;height:number}[]; errors?: {url:string;viewport:string;error:string}[] };
+};
 export type Transport = (path: string, init?: RequestInit) => Promise<Response>;
 // The desktop adapter can supply a transport in PR-09; web uses same-origin fetch.
 export function createClient(transport: Transport = (path, init) => fetch(path, init)) {
@@ -28,6 +32,8 @@ export function createClient(transport: Transport = (path, init) => fetch(path, 
       if (response.status !== 200 && response.status !== 503) throw new Error("Health request failed");
       return response.json();
     },
+    captures: (id:string) => request<{items:Capture[]}>("/api/v1/projects/" + encodeURIComponent(id) + "/captures"),
+    startCapture: (id:string) => request<Capture>("/api/v1/projects/" + encodeURIComponent(id) + "/captures", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({authorized:true})}),
     list: (offset = 0) => request<ProjectPage>("/api/v1/projects?limit=50&offset=" + offset),
     get: (id: string) => request<Project>("/api/v1/projects/" + encodeURIComponent(id)),
     validate: (config: Config) => post<{ valid: boolean }>("/api/v1/config/validate", config),

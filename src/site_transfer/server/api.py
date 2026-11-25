@@ -12,10 +12,12 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from site_transfer.config import ConfigError, validate_config
 from site_transfer.documentation import initialize_project
-from . import db
+from . import db, jobs
+from .storage import screenshot_path
+from .worker import run_capture
 from .settings import project_root, redis_url
 
-app = FastAPI(title="Site Transfer Studio", version="0.3.0")
+app = FastAPI(title="Site Transfer Studio", version="0.4.0")
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
 
@@ -91,6 +93,44 @@ def create(payload: dict = Body(...)):
         return db.create_project(project_id, config)
     except (OSError, ValueError, psycopg.Error) as exc:
         raise HTTPException(status_code=503, detail=f"Project initialization failed; recovery ID: {project_id}") from exc
+
+@app.post("/api/v1/projects/{project_id}/captures", status_code=202)
+def start_capture(project_id: UUID, payload: dict = Body(...)):
+    if payload != {"authorized": True}:
+        raise HTTPException(status_code=422, detail="Confirm authorization to capture the reference")
+    if db.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    job_id = uuid4()
+    try:
+        item = jobs.create(job_id, project_id)
+    except psycopg.errors.UniqueViolation as exc:
+        raise HTTPException(status_code=409, detail="A capture is already active") from exc
+    try:
+        run_capture.apply_async(args=[str(job_id)], task_id=str(job_id), retry=False)
+    except Exception as exc:
+        jobs.finish(job_id, "failed", "Queue dispatch failed", expected="queued")
+        raise HTTPException(status_code=503, detail="Could not dispatch capture") from exc
+    return item
+
+
+@app.get("/api/v1/projects/{project_id}/captures")
+def captures(project_id: UUID):
+    if db.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"items": jobs.list_jobs(project_id)}
+
+
+@app.get("/api/v1/projects/{project_id}/captures/{job_id}/screenshots/{index}")
+def screenshot(project_id: UUID, job_id: UUID, index: int):
+    job = jobs.get(project_id, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Capture not found")
+    try:
+        path = screenshot_path(project_id, job_id, job["manifest"], index)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Screenshot not found") from exc
+    return FileResponse(path, media_type="image/png", headers={"X-Content-Type-Options": "nosniff"})
+
 
 # The production UI is served by the API on the same origin. No catch-all route
 # can shadow API/health endpoints. The initial frontend uses in-memory navigation.

@@ -8,7 +8,7 @@ src/site_transfer remains independent of the API and UI. PR-01 implements config
 
 ## Technology stack
 Implemented: Python 3.11+, setuptools, JSON Schema Draft 2020-12, Jinja2, pytest.
-PR-02 implementation: FastAPI, PostgreSQL 17, Redis 7, Celery and Docker Compose. PR-03 implementation: React 19, TypeScript, Vite, Vitest, Node 22 build stage. Planned: Playwright Chromium and Tauri 2/Rust. PR-02 native arm64 runtime was verified by user.
+PR-02 implementation: FastAPI, PostgreSQL 17, Redis 7, Celery and Docker Compose. PR-03 implementation: React 19, TypeScript, Vite, Vitest, Node 22 build stage. PR-04 adds Playwright Chromium 1.56.0. Planned: Tauri 2/Rust. PR-02 native arm64 runtime was verified by user.
 
 ## Important files
 - pyproject.toml: dependencies and CLI entry point.
@@ -21,6 +21,9 @@ PR-02 implementation: FastAPI, PostgreSQL 17, Redis 7, Celery and Docker Compose
 - src/site_transfer/server/: API, registry, migration and worker.
 - frontend/: shared Studio GUI and API client.
 - docs/GUI.md: GUI build and acceptance checks.
+- browser.py, discovery.py, capture.py: core capture engine.
+- server/jobs.py, server/storage.py: capture persistence and artifact access.
+- docs/CAPTURE.md: capture setup and limitations.
 
 ## Development commands
 - python -m pip install -e '.[dev]'
@@ -35,7 +38,7 @@ PR-02 implementation: FastAPI, PostgreSQL 17, Redis 7, Celery and Docker Compose
 - open http://localhost:8080 (Docker GUI; use configured port)
 
 ## Current status
-PR-01 merged into main (25d2b459); user verified all 14 foundation tests on macOS, Python 3.13.7, pytest 9.2.0 (0.70 s). PR-02 integration PR #3 merged into main (fb1afbcd). User verified 20/20 Python tests (5.25 s; one Starlette TestClient deprecation warning), native linux/aarch64 Docker, all five services, API create/list, generated documents, Celery ping and persistence after restart. The last three checks were confirmed by the user without raw logs. Create/list/read project registry generates mandatory documents before saving metadata. Worker runtime has no capture tasks yet. PR-03 Docker build and GUI launch succeeded according to the user; all six manual GUI acceptance checks passed (existing project, creation, validation, import, details, readiness). Standalone Vitest results and npm lockfile are not supplied. User approved completing PR-03 and proceeding.
+PR-01 merged into main (25d2b459); user verified all 14 foundation tests on macOS, Python 3.13.7, pytest 9.2.0 (0.70 s). PR-02 integration PR #3 merged into main (fb1afbcd). User verified 20/20 Python tests (5.25 s; one Starlette TestClient deprecation warning), native linux/aarch64 Docker, all five services, API create/list, generated documents, Celery ping and persistence after restart. The last three checks were confirmed by the user without raw logs. Create/list/read project registry generates mandatory documents before saving metadata. PR-04 adds Celery capture tasks with PostgreSQL job state and per-run artifacts. PR-03 Docker build and GUI launch succeeded according to the user; all six manual GUI acceptance checks passed (existing project, creation, validation, import, details, readiness). Standalone Vitest results and npm lockfile are not supplied. PR-03 merged into main (b11b7592) on user approval. PR-04: user confirmed local tests passed and an actual capture completed with two desktop/mobile screenshots. Exact test counts and raw logs were not supplied. Repeat-run isolation and capture persistence after restart remain to be confirmed.
 
 ## Technical decisions
 - Root CONTEXT.md is mandatory for this repository and every generated project.
@@ -47,7 +50,7 @@ PR-01 merged into main (25d2b459); user verified all 14 foundation tests on macO
 - English templates in PR-01; localization deferred.
 
 ## Known issues
-PR-02 local runtime checks passed as reported by the user. API assumes trusted local host; worker readiness not checked by API. Failed metadata writes can leave orphaned artifacts; manual recovery ID is returned. PR-03 standalone Vitest results and npm lockfile remain pending. Capture, export, automated reconciliation, desktop, localization, resume and publishing remain deferred. Example URL is a placeholder.
+PR-02 local runtime checks passed as reported by the user. API assumes trusted local host; worker readiness not checked by API. Failed metadata writes can leave orphaned artifacts; manual recovery ID is returned. PR-03 standalone Vitest results and npm lockfile remain pending. PR-04 public proxy is not a hardened browser isolation boundary; no hostile targets. Basic capture runtime verified by user on the existing Mac Docker setup; repeat-run isolation and capture persistence remain unverified. Hard-killed jobs can remain active; cancellation, stale reconciliation, export, interaction analysis, desktop, localization, resume and publishing remain deferred. Example URL is a placeholder.
 
 ## Next steps
-Complete PR-03 on user approval; implement PR-04 Browser & Screenshot Capture. Record standalone frontend tests and lockfile when available.
+Verify distinct repeat runs, gallery history and capture persistence after container recreation; review before merge. PR-05 Design Intelligence follows. Record standalone frontend tests and lockfile when available.
