@@ -9,6 +9,7 @@ from .discovery import normalize, seed_routes
 from .measurements import measure
 from .design_tokens import summarize, aggregate
 from .interactions import inspect_interactions
+from .assets import inventory, combine
 
 DEFAULT_VIEWPORTS = [
     {"name": "desktop", "width": 1440, "height": 900},
@@ -34,6 +35,8 @@ def capture_site(config, root: Path, progress=lambda data: None):
     artifacts = []
     errors = []
     design_entries = []
+    asset_reports = []
+    assets_enabled = config.get('assets', {}).get('enabled', True)
     measurements = config.get('measurements', {}).get('enabled', True)
     interactions = config.get('interactions', {}).get('enabled', True)
     done = 0
@@ -46,6 +49,11 @@ def capture_site(config, root: Path, progress=lambda data: None):
             data["design_reports"] = [{k: v for k, v in entry.items() if k != "summary"} for entry in design_entries]
             data["design_tokens"] = "design-tokens.json"
             write_json(root / "design-tokens.json", aggregate(design_entries))
+        if assets_enabled:
+            catalog = combine(asset_reports)
+            data["asset_manifest"] = "asset-manifest.json"
+            data["asset_count"] = catalog["count"]
+            write_json(root / "asset-manifest.json", catalog)
         write_json(root / "routes.json", routes)
         write_json(root / "capture-manifest.json", data)
         progress(data)
@@ -79,6 +87,11 @@ def capture_site(config, root: Path, progress=lambda data: None):
                     relative = Path("screenshots") / viewport["name"] / name
                     target = root / relative
                     target.parent.mkdir(parents=True, exist_ok=True)
+                    if assets_enabled:
+                        try:
+                            asset_reports.append(inventory(page, url, viewport["name"]))
+                        except Exception as exc:
+                            errors.append({"url": url, "viewport": viewport["name"], "stage": "assets", "error": str(exc)[:500]})
                     snapshot = None
                     if measurements or interactions:
                         try:
