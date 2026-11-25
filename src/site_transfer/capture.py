@@ -6,6 +6,9 @@ from pathlib import Path
 
 from .browser import chromium, context_for, origin, public_url
 from .discovery import normalize, seed_routes
+from .measurements import measure
+from .design_tokens import summarize, aggregate
+from .interactions import inspect_interactions
 
 DEFAULT_VIEWPORTS = [
     {"name": "desktop", "width": 1440, "height": 900},
@@ -30,12 +33,19 @@ def capture_site(config, root: Path, progress=lambda data: None):
     root.mkdir(parents=True, exist_ok=False)
     artifacts = []
     errors = []
+    design_entries = []
+    measurements = config.get('measurements', {}).get('enabled', True)
+    interactions = config.get('interactions', {}).get('enabled', True)
     done = 0
     timeout = min(config.get("browser", {}).get("timeout_ms", 30000), 30000)
 
     def record():
         data = {"routes": list(routes), "artifacts": list(artifacts), "errors": list(errors),
                 "completed": done, "total": len(routes) * len(views)}
+        if measurements or interactions:
+            data["design_reports"] = [{k: v for k, v in entry.items() if k != "summary"} for entry in design_entries]
+            data["design_tokens"] = "design-tokens.json"
+            write_json(root / "design-tokens.json", aggregate(design_entries))
         write_json(root / "routes.json", routes)
         write_json(root / "capture-manifest.json", data)
         progress(data)
@@ -69,10 +79,34 @@ def capture_site(config, root: Path, progress=lambda data: None):
                     relative = Path("screenshots") / viewport["name"] / name
                     target = root / relative
                     target.parent.mkdir(parents=True, exist_ok=True)
+                    snapshot = None
+                    if measurements or interactions:
+                        try:
+                            snapshot = measure(page, measurements, interactions)
+                        except Exception as exc:
+                            errors.append({"url": url, "viewport": viewport["name"], "stage": "design", "error": str(exc)[:500]})
                     page.screenshot(path=str(target), full_page=True, animations="disabled", timeout=timeout)
                     artifacts.append({"path": relative.as_posix(), "url": url, "viewport": viewport["name"],
                                       "width": viewport["width"], "height": viewport["height"],
                                       "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
+                    if snapshot is not None:
+                        try:
+                            summary = summarize(snapshot)
+                            states = inspect_interactions(page, snapshot) if interactions else None
+                            report_path = Path("design") / viewport["name"] / (Path(name).stem + ".json")
+                            report_target = root / report_path
+                            report_target.parent.mkdir(parents=True, exist_ok=True)
+                            report = {"schema_version": 1, "url": url, "viewport_name": viewport["name"],
+                                      "screenshot": relative.as_posix(), "summary": summary,
+                                      "elements": snapshot["elements"], "interactions": states}
+                            write_json(report_target, report)
+                            design_entries.append({"path": report_path.as_posix(), "url": url, "viewport": viewport["name"],
+                                                   "screenshot_index": len(artifacts)-1, "element_count": summary["element_count"],
+                                                   "hover_count": len(states["hover"]) if states else 0,
+                                                   "animation_count": len(summary["motion"]["observed"]),
+                                                   "summary": summary})
+                        except Exception as exc:
+                            errors.append({"url": url, "viewport": viewport["name"], "stage": "design", "error": str(exc)[:500]})
                 except Exception as exc:
                     errors.append({"url": url, "viewport": viewport["name"], "error": str(exc)[:500]})
                 finally:

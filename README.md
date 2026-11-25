@@ -26,3 +26,5 @@ PR-02 adds a local Docker runtime and project registry API; see [Docker setup](d
 See CONTEXT.md, AGENTS.md and SITE_TRANSFER_SPEC.md.
 
 PR-04 adds authorized reference capture, per-run screenshots and a Studio gallery. See [capture setup and limitations](docs/CAPTURE.md).
+
+PR-05 adds sampled design intelligence to new reference captures. See [design evidence and limits](docs/DESIGN.md).

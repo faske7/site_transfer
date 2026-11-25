@@ -13,11 +13,11 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from site_transfer.config import ConfigError, validate_config
 from site_transfer.documentation import initialize_project
 from . import db, jobs
-from .storage import screenshot_path
+from .storage import screenshot_path, design_path
 from .worker import run_capture
 from .settings import project_root, redis_url
 
-app = FastAPI(title="Site Transfer Studio", version="0.4.0")
+app = FastAPI(title="Site Transfer Studio", version="0.5.0")
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
 
@@ -130,6 +130,27 @@ def screenshot(project_id: UUID, job_id: UUID, index: int):
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Screenshot not found") from exc
     return FileResponse(path, media_type="image/png", headers={"X-Content-Type-Options": "nosniff"})
+
+
+def _design_response(project_id, job_id, index=None):
+    job = jobs.get(project_id, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Capture not found")
+    try:
+        path = design_path(project_id, job_id, job["manifest"], index)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Design evidence not found") from exc
+    return FileResponse(path, media_type="application/json", headers={"X-Content-Type-Options":"nosniff"})
+
+
+@app.get("/api/v1/projects/{project_id}/captures/{job_id}/design/{index}")
+def design_report(project_id: UUID, job_id: UUID, index: int):
+    return _design_response(project_id, job_id, index)
+
+
+@app.get("/api/v1/projects/{project_id}/captures/{job_id}/design-tokens")
+def design_tokens(project_id: UUID, job_id: UUID):
+    return _design_response(project_id, job_id)
 
 
 # The production UI is served by the API on the same origin. No catch-all route

@@ -26,12 +26,13 @@ def run_capture(job_id):
     if job is None:
         return
     project_id = job["project_id"]
-    status, error, count = "failed", None, 0
+    status, error, count, design_count = "failed", None, 0, 0
     try:
         config = db.get_project(project_id)["config"]
         def update(manifest):
-            nonlocal count
+            nonlocal count, design_count
             count = len(manifest["artifacts"])
+            design_count = len(manifest.get("design_reports", []))
             jobs.progress(job_id, manifest)
         result = capture_site(config, run_root(project_id, job_id), update)
         status = "completed" if count and not result["errors"] else "partial" if count else "failed"
@@ -42,7 +43,7 @@ def run_capture(job_id):
     except Exception as exc:
         error = str(exc)[:500]
     try:
-        append_capture_context(project_id, job_id, status, count)
+        append_capture_context(project_id, job_id, status, count, design_count)
     except OSError:
         status = "partial" if count else "failed"
         error = "Could not update CONTEXT.md"
