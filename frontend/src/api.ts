@@ -12,6 +12,8 @@ export type Capture = {
   id: string; status: string; error: string | null; created_at: string;
   manifest: { asset_manifest?:string; asset_count?:number; design_tokens?:string; design_reports?:{path:string;url:string;viewport:string;screenshot_index:number;element_count:number;hover_count:number;animation_count:number}[]; completed?: number; total?: number; artifacts?: {path:string;url:string;viewport:string;width:number;height:number}[]; errors?: {url:string;viewport:string;error:string}[] };
 };
+export type ComparisonSummary = {id:string;reference_run:string;implementation_run:string;passes:boolean};
+export type Comparison = ComparisonSummary & {reference_project:string;implementation_project:string;reference_only:unknown[][];implementation_only:unknown[][];pixel_tolerance:number;max_changed_percent:number;pairs:{route:string;viewport:string;width:number;height:number;reference_index:number;implementation_index:number;metrics:{changed_percent:number;similarity_percent:number;dimensions_match:boolean;passes:boolean};structure:unknown}[]};
 export type Transport = (path: string, init?: RequestInit) => Promise<Response>;
 // The desktop adapter can supply a transport in PR-09; web uses same-origin fetch.
 export function createClient(transport: Transport = (path, init) => fetch(path, init)) {
@@ -32,6 +34,9 @@ export function createClient(transport: Transport = (path, init) => fetch(path, 
       if (response.status !== 200 && response.status !== 503) throw new Error("Health request failed");
       return response.json();
     },
+    comparisons: (id:string) => request<{items:ComparisonSummary[]}>('/api/v1/projects/'+encodeURIComponent(id)+'/comparisons'),
+    comparison: (id:string,cid:string) => request<Comparison>('/api/v1/projects/'+encodeURIComponent(id)+'/comparisons/'+encodeURIComponent(cid)),
+    compare: (id:string,reference_run:string,implementation_project:string,implementation_run:string) => request<Comparison>('/api/v1/projects/'+encodeURIComponent(id)+'/comparisons',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference_run,implementation_project,implementation_run})}),
     captures: (id:string) => request<{items:Capture[]}>("/api/v1/projects/" + encodeURIComponent(id) + "/captures"),
     startCapture: (id:string) => request<Capture>("/api/v1/projects/" + encodeURIComponent(id) + "/captures", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({authorized:true})}),
     list: (offset = 0) => request<ProjectPage>("/api/v1/projects?limit=50&offset=" + offset),

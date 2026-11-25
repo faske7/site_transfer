@@ -30,3 +30,5 @@ PR-04 adds authorized reference capture, per-run screenshots and a Studio galler
 PR-05 adds sampled design intelligence to new reference captures. See [design evidence and limits](docs/DESIGN.md).
 
 PR-06 adds bounded asset inventory and portable Codex Reference Kit export. See [reference kit](docs/REFERENCE_KIT.md).
+
+PR-07 adds saved-run visual comparison, pixel diffs and sampled structural reports. See [comparison](docs/COMPARISON.md).
