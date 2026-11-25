@@ -16,3 +16,6 @@ desktop/src-tauri/target/
 desktop/src-tauri/runtime/
 desktop/src-tauri/icons/
 desktop/src-tauri/gen/
+
+# Local macOS metadata
+.DS_Store

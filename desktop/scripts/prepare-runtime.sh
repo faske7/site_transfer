@@ -4,6 +4,8 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 # Bundle tracked files from exactly the current commit; never bundle .env or local data.
 DEST="$ROOT/desktop/src-tauri/runtime"
+# Refuse tracked secrets and symlinks in the selected archive inputs.
+python3 desktop/scripts/check-runtime-inputs.py
 mkdir -p "$DEST"
 rm -rf "$DEST"
 mkdir -p "$DEST"

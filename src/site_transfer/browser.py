@@ -10,21 +10,44 @@ from urllib.parse import urlsplit
 
 
 def origin(url):
+    if not isinstance(url, str) or "\\" in url or any(ord(c) < 32 or ord(c) == 127 for c in url):
+        raise ValueError("Invalid URL characters")
     parsed = urlsplit(url)
     if (parsed.scheme not in ("http", "https") or not parsed.hostname
             or parsed.username is not None or parsed.password is not None):
         raise ValueError("Expected public HTTP(S) URL without credentials")
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    port = parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
     if port != (443 if parsed.scheme == "https" else 80):
         raise ValueError("Only default HTTP(S) ports are allowed")
     return parsed.scheme, parsed.hostname.lower(), port
+
+
+# Transition mechanisms can encapsulate a private IPv4 destination. Reject them
+# rather than trusting the outer IPv6 address's global flag.
+_DENIED_V6 = tuple(ipaddress.ip_network(n) for n in (
+    "::ffff:0:0/96", "64:ff9b::/96", "64:ff9b:1::/48", "2001::/32", "2002::/16",
+))
+
+
+def is_public_address(value):
+    try:
+        if "%" in value:
+            return False
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    if not address.is_global or address.is_multicast or address.is_reserved:
+        return False
+    if address.version == 6:
+        return not address.is_site_local and not any(address in net for net in _DENIED_V6)
+    return True
 
 
 def public_addresses(host, port):
     if host.lower().rstrip(".") in {"localhost", "host.docker.internal", "gateway.docker.internal"}:
         raise ValueError("Local host denied")
     addresses = list(dict.fromkeys(row[4][0] for row in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)))
-    if not addresses or any(not ipaddress.ip_address(a).is_global or ipaddress.ip_address(a).is_multicast for a in addresses):
+    if not addresses or any(not is_public_address(a) for a in addresses):
         raise ValueError("Non-public destination denied")
     return addresses
 
@@ -33,6 +56,16 @@ def public_url(url):
     scheme, host, port = origin(url)
     public_addresses(host, port)
     return scheme, host, port
+
+
+def forwarded_headers(headers):
+    # RFC hop-by-hop header names may also be nominated by Connection.
+    nominated = {part.strip().lower() for value in headers.get_all("Connection", [])
+                 for part in value.split(",")}
+    excluded = nominated | {"host", "connection", "proxy-connection", "proxy-authorization",
+        "transfer-encoding", "content-length", "upgrade", "keep-alive", "te", "trailer",
+        "expect"}
+    return {k: v for k, v in headers.items() if k.lower() not in excluded}
 
 
 class PublicProxy(BaseHTTPRequestHandler):
@@ -46,7 +79,8 @@ class PublicProxy(BaseHTTPRequestHandler):
         upstream = None
         try:
             parsed = urlsplit("https://" + self.path)
-            if parsed.port != 443 or parsed.path or parsed.query or parsed.fragment:
+            if ("\\" in self.path or any(ord(c) < 33 or ord(c) == 127 for c in self.path)
+                    or parsed.port != 443 or parsed.path or parsed.query or parsed.fragment):
                 raise ValueError("CONNECT restricted to port 443")
             _, host, port = origin("https://" + self.path)
             address = public_addresses(host, port)[0]
@@ -77,17 +111,16 @@ class PublicProxy(BaseHTTPRequestHandler):
         conn = None
         started = False
         try:
-            scheme, host, port = public_url(self.path)
+            scheme, host, port = origin(self.path)
             if scheme != "http":
                 raise ValueError("Expected HTTP proxy request")
             parsed = urlsplit(self.path)
-            conn = http.client.HTTPConnection(public_addresses(host, port)[0], port, timeout=15)
+            address = public_addresses(host, port)[0]
+            conn = http.client.HTTPConnection(address, port, timeout=15)
             target = parsed.path or "/"
             if parsed.query:
                 target += "?" + parsed.query
-            headers = {k: v for k, v in self.headers.items() if k.lower() not in {
-                "host", "connection", "proxy-connection", "proxy-authorization", "transfer-encoding", "content-length", "upgrade"
-            }}
+            headers = forwarded_headers(self.headers)
             headers["Host"] = parsed.netloc
             conn.request(self.command, target, headers=headers)
             response = conn.getresponse()

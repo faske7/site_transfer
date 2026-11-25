@@ -12,3 +12,14 @@ build
 
 **/node_modules
 **/dist
+
+# Local secrets and native build products are not runtime build inputs.
+.env.*
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/.npmrc
+**/.git
+desktop/
+**/target/

@@ -8,13 +8,25 @@ use tauri::webview::NewWindowResponse;
 
 struct Gate(Mutex<()>);
 
+fn controller_origin(url: &tauri::Url) -> bool {
+    url.scheme() == "tauri" && url.host_str() == Some("localhost")
+        && url.port().is_none() && url.username().is_empty() && url.password().is_none()
+        && matches!(url.path(), "/" | "/index.html" | "")
+}
+
+fn controller_allowed(label: &str, url: &tauri::Url) -> bool {
+    label == "main" && controller_origin(url)
+}
+
+fn studio_origin(url: &tauri::Url, port: u16) -> bool {
+    url.scheme()=="http" && url.host_str()==Some("127.0.0.1") && url.port_or_known_default()==Some(port)
+        && url.username().is_empty() && url.password().is_none()
+}
+
 fn local(window: &WebviewWindow) -> Result<(), String> {
-    if window.label() != "main" {
-        return Err("Native command denied".into());
-    }
     let url = window.url().map_err(|_| "Controller origin unavailable")?;
-    if url.scheme() != "tauri" || url.host_str() != Some("localhost") {
-        return Err("Native command denied for remote origin".into());
+    if !controller_allowed(window.label(), &url) {
+        return Err("Native command denied for window or origin".into());
     }
     Ok(())
 }
@@ -70,7 +82,7 @@ async fn open_studio(window: WebviewWindow, app: AppHandle) -> Result<(), String
     let port = parsed.port().ok_or("Missing runtime port")?;
     WebviewWindowBuilder::new(&app, "studio", WebviewUrl::External(parsed))
         .title("Site Transfer Studio").inner_size(1280.0, 850.0)
-        .on_navigation(move |u| u.scheme()=="http" && u.host_str()==Some("127.0.0.1") && u.port()==Some(port))
+        .on_navigation(move |u| studio_origin(u,port))
         .on_new_window(|_, _| NewWindowResponse::Deny)
         .build().map_err(|e| e.to_string())?;
     Ok(())
@@ -79,10 +91,44 @@ async fn open_studio(window: WebviewWindow, app: AppHandle) -> Result<(), String
 fn main() {
     tauri::Builder::default()
         .manage(Gate(Mutex::new(())))
+        .setup(|app| {
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                .title("Site Transfer — Runtime").inner_size(780.0,760.0)
+                .min_inner_size(580.0,520.0)
+                .on_navigation(controller_origin)
+                .on_new_window(|_, _| NewWindowResponse::Deny)
+                .build()?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             runtime_status, initialize_runtime, start_runtime, stop_runtime,
             open_studio, open_browser, open_data_folder, export_project
         ])
         .run(tauri::generate_context!())
         .expect("failed to launch Site Transfer");
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+    fn url(value: &str) -> tauri::Url { value.parse().unwrap() }
+
+    #[test]
+    fn bundled_controller_only() {
+        assert!(controller_allowed("main",&url("tauri://localhost/index.html")));
+        assert!(!controller_allowed("studio",&url("tauri://localhost/index.html")));
+        assert!(!controller_allowed("main",&url("http://127.0.0.1:8080/")));
+        assert!(!controller_allowed("main",&url("tauri://other/index.html")));
+        assert!(!controller_allowed("main",&url("tauri://localhost/other.html")));
+    }
+
+    #[test]
+    fn studio_requires_exact_loopback_origin() {
+        assert!(studio_origin(&url("http://127.0.0.1:8080/api/v1/projects"),8080));
+        for value in ["https://127.0.0.1:8080/", "http://localhost:8080/",
+                      "http://127.0.0.1:8081/", "http://127.0.0.1.example:8080/",
+                      "http://user@127.0.0.1:8080/", "file:///tmp/test.html"] {
+            assert!(!studio_origin(&url(value),8080),"{value}");
+        }
+    }
 }

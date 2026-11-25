@@ -23,12 +23,22 @@ from .recovery import lifespan
 from site_transfer.manifest import digest
 from .settings import project_root, redis_url
 
-app = FastAPI(title="Site Transfer Studio", version="0.9.1", lifespan=lifespan)
+app = FastAPI(title="Site Transfer Studio", version="0.9.2", lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
 
 @app.middleware("http")
 async def local_write_guard(request: Request, call_next):
+    # Expensive GET exports and evidence are also protected from cross-origin
+    # browser subrequests. This is defense in depth, not authentication.
+    fetch_site = request.headers.get("sec-fetch-site")
+    if request.url.path.startswith(("/api/", "/health/")):
+        if fetch_site in {"cross-site", "same-site"}:
+            return JSONResponse(status_code=403, content={"detail": "Cross-origin resource access denied"})
+        supplied_origin = request.headers.get("origin")
+        expected_origin = f"{request.url.scheme}://{request.headers.get('host', '')}"
+        if supplied_origin is not None and supplied_origin != expected_origin:
+            return JSONResponse(status_code=403, content={"detail": "Cross-origin resource access denied"})
     # Browser-originated writes must be same-origin. Non-browser clients may omit Origin.
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         origin = request.headers.get("origin")
@@ -36,7 +46,14 @@ async def local_write_guard(request: Request, call_next):
             return JSONResponse(status_code=403, content={"detail": "Cross-origin write denied"})
         if request.headers.get("sec-fetch-site") == "cross-site":
             return JSONResponse(status_code=403, content={"detail": "Cross-site write denied"})
-    return await call_next(request)
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+    if request.url.path.startswith(("/api/", "/health/")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/health/live")
