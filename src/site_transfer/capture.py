@@ -43,7 +43,7 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
     assets_enabled = config.get('assets', {}).get('enabled', True)
     measurements = config.get('measurements', {}).get('enabled', True)
     interactions = config.get('interactions', {}).get('enabled', True)
-    states = planned_states(config, routes, views) if interactions else []
+    scenario_states = planned_states(config, routes, views) if interactions else []
     done = 0
     timeout = min(config.get("browser", {}).get("timeout_ms", 30000), 30000)
 
@@ -59,12 +59,12 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
             data["asset_manifest"] = "asset-manifest.json"
             data["asset_count"] = catalog["count"]
             write_json(root / "asset-manifest.json", catalog)
-        if states:
-            interaction_report = {"schema_version": 1, "states": list(states), "limitations": LIMITATIONS}
+        if scenario_states:
+            interaction_report = {"schema_version": 1, "states": list(scenario_states), "limitations": LIMITATIONS}
             write_json(root / "interaction-manifest.json", interaction_report)
             data["interaction_manifest"] = "interaction-manifest.json"
             data["interaction_sha256"] = hashlib.sha256((root / "interaction-manifest.json").read_bytes()).hexdigest()
-            data["interaction_states"] = list(states)
+            data["interaction_states"] = list(scenario_states)
         write_json(root / "routes.json", routes)
         write_json(root / "capture-manifest.json", data)
         progress(data)
@@ -120,17 +120,17 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     if snapshot is not None:
                         try:
                             summary = summarize(snapshot)
-                            states = inspect_interactions(page, snapshot) if interactions else None
+                            hover_observations = inspect_interactions(page, snapshot) if interactions else None
                             report_path = Path("design") / viewport["name"] / (Path(name).stem + ".json")
                             report_target = root / report_path
                             report_target.parent.mkdir(parents=True, exist_ok=True)
                             report = {"schema_version": 1, "url": url, "viewport_name": viewport["name"],
                                       "screenshot": relative.as_posix(), "summary": summary,
-                                      "elements": snapshot["elements"], "interactions": states}
+                                      "elements": snapshot["elements"], "interactions": hover_observations}
                             write_json(report_target, report)
                             design_entries.append({"path": report_path.as_posix(), "url": url, "viewport": viewport["name"],
                                                    "screenshot_index": len(artifacts)-1, "element_count": summary["element_count"],
-                                                   "hover_count": len(states["hover"]) if states else 0,
+                                                   "hover_count": len(hover_observations["hover"]) if hover_observations else 0,
                                                    "animation_count": len(summary["motion"]["observed"]),
                                                    "summary": summary})
                         except Exception as exc:
@@ -143,7 +143,7 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     context.close()
                 done += 1
                 record()
-                for state_index, state in enumerate(states):
+                for state_index, state in enumerate(scenario_states):
                     if state["url"] != url or state["viewport"] != viewport["name"]:
                         continue
                     if cancelled():
@@ -153,7 +153,7 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     else:
                         result = capture_state(browser, viewport, expected, root, state, cancelled)
                         result["baseline_index"] = baseline_index
-                    states[state_index] = result
+                    scenario_states[state_index] = result
                     if result["status"] != "captured":
                         errors.append({"url": url, "viewport": viewport["name"], "stage": "interaction",
                                        "state_id": state["id"], "error": result["reason"]})
