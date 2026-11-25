@@ -92,7 +92,7 @@ def observe(page, state):
         if action=="hover":
             handle.hover(timeout=2000)
         elif action=="focus":
-            handle.focus(timeout=2000)
+            handle.focus()
         elif action=="click":
             if state["width"]<600:
                 handle.tap(timeout=2000)
