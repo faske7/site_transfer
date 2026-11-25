@@ -19,10 +19,11 @@ from . import db, jobs, comparisons
 from threading import Lock
 from pydantic import BaseModel
 from .storage import screenshot_path, design_path, run_root
-from .worker import run_capture
+from .worker import run_capture, run_kit
+from site_transfer.manifest import digest
 from .settings import project_root, redis_url
 
-app = FastAPI(title="Site Transfer Studio", version="0.7.0")
+app = FastAPI(title="Site Transfer Studio", version="0.8.0")
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
 
@@ -101,13 +102,13 @@ def create(payload: dict = Body(...)):
 
 @app.post("/api/v1/projects/{project_id}/captures", status_code=202)
 def start_capture(project_id: UUID, payload: dict = Body(...)):
-    if payload != {"authorized": True}:
+    if payload not in ({"authorized": True}, {"authorized": True, "pipeline": True}):
         raise HTTPException(status_code=422, detail="Confirm authorization to capture the reference")
     if db.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
     job_id = uuid4()
     try:
-        item = jobs.create(job_id, project_id)
+        item = jobs.create(job_id, project_id, pipeline=payload.get('pipeline', False))
     except psycopg.errors.UniqueViolation as exc:
         raise HTTPException(status_code=409, detail="A capture is already active") from exc
     try:
@@ -236,6 +237,43 @@ def comparison_diff(project_id: UUID, comparison_id: UUID, index: int):
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404,detail="Diff not found") from exc
     return FileResponse(path,media_type="image/png",headers={"X-Content-Type-Options":"nosniff"})
+
+
+@app.post("/api/v1/projects/{project_id}/captures/{job_id}/cancel")
+def cancel_capture(project_id: UUID, job_id: UUID):
+    item=jobs.request_cancel(project_id,job_id)
+    if item is None:
+        raise HTTPException(status_code=409,detail="Capture is not active")
+    return item
+
+
+@app.post("/api/v1/projects/{project_id}/captures/{job_id}/build-kit",status_code=202)
+def retry_kit(project_id: UUID, job_id: UUID):
+    item=jobs.get(project_id,job_id)
+    if item is None:
+        raise HTTPException(status_code=404,detail="Capture not found")
+    if item["status"] not in ("completed","partial") or item["cancel_requested"] or item["kit_status"] not in ("pending","failed","not_requested"):
+        raise HTTPException(status_code=409,detail="Kit cannot be built in current state")
+    try:
+        run_kit.apply_async(args=[str(project_id),str(job_id)],retry=False)
+    except Exception as exc:
+        raise HTTPException(status_code=503,detail="Kit dispatch failed") from exc
+    return {"status":"submitted"}
+
+
+@app.get("/api/v1/projects/{project_id}/captures/{job_id}/pipeline-kit")
+def pipeline_kit(project_id: UUID, job_id: UUID):
+    item=jobs.get(project_id,job_id)
+    if item is None or item["kit_status"]!="ready":
+        raise HTTPException(status_code=404,detail="Pipeline kit unavailable")
+    try:
+        path=evidence_file(run_root(project_id,job_id),"reference-kit.zip")
+        if digest(path)!=item["kit_info"].get("sha256"):
+            raise ValueError("Checksum mismatch")
+    except (ValueError,OSError) as exc:
+        raise HTTPException(status_code=409,detail="Kit integrity check failed") from exc
+    return FileResponse(path,media_type="application/zip",filename=f"reference-kit-{job_id}.zip",
+                        headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"})
 
 
 # The production UI is served by the API on the same origin. No catch-all route

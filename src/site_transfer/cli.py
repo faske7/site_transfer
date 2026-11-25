@@ -19,8 +19,17 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--output", type=Path, required=True)
     project = commands.add_parser("validate-project", help="Check required target documents")
     project.add_argument("path", type=Path)
+    publish = commands.add_parser("publish", help="Publish reviewed kit to a private GitHub repository as draft PR")
+    publish.add_argument("kit",type=Path)
+    publish.add_argument("--repo",required=True)
+    publish.add_argument("--sha256",required=True)
+    publish.add_argument("--approve",action="store_true")
     args = parser.parse_args(argv)
     try:
+        if args.command == "publish":
+            from .github import publish as publish_kit
+            print(json.dumps(publish_kit(args.kit,args.repo,args.sha256,args.approve),indent=2))
+            return 0
         if args.command == "validate-project":
             errors = validate_project(args.path)
             if errors:

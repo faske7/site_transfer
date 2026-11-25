@@ -37,6 +37,11 @@ def migrate():
         """)
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS capture_active_project ON capture_jobs(project_id) WHERE status IN ('queued','running')")
         conn.execute("INSERT INTO studio_schema (version) VALUES (2) ON CONFLICT DO NOTHING")
+        conn.execute("ALTER TABLE capture_jobs ADD COLUMN IF NOT EXISTS pipeline_enabled boolean NOT NULL DEFAULT false")
+        conn.execute("ALTER TABLE capture_jobs ADD COLUMN IF NOT EXISTS cancel_requested boolean NOT NULL DEFAULT false")
+        conn.execute("ALTER TABLE capture_jobs ADD COLUMN IF NOT EXISTS kit_status text NOT NULL DEFAULT 'not_requested'")
+        conn.execute("ALTER TABLE capture_jobs ADD COLUMN IF NOT EXISTS kit_info jsonb NOT NULL DEFAULT '{}'::jsonb")
+        conn.execute("INSERT INTO studio_schema (version) VALUES (3) ON CONFLICT DO NOTHING")
 
 
 def create_project(project_id: UUID, config: dict) -> dict:
@@ -62,4 +67,4 @@ def list_projects(limit: int, offset: int) -> list[dict]:
 
 def ready() -> bool:
     with connect() as conn:
-        return conn.execute("SELECT version FROM studio_schema WHERE version = 2").fetchone() is not None
+        return conn.execute("SELECT version FROM studio_schema WHERE version = 3").fetchone() is not None

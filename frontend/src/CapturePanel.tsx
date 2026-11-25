@@ -25,23 +25,31 @@ export default function CapturePanel({projectId}:{projectId:string}) {
     const timer = window.setInterval(() => void refresh(), 2500);
     return () => {alive.current=false; window.clearInterval(timer);};
   },[projectId]);
-  async function start() {
+  async function start(pipeline=false) {
     if (!authorized || busy || active) return;
     setBusy(true);setError("");
-    try {const job=await api.startCapture(projectId); if(alive.current){setItems(old=>[job,...old.filter(x=>x.id!==job.id)]);setSelected(job.id);setAuthorized(false);}}
+    try {const job=await api.startCapture(projectId,pipeline); if(alive.current){setItems(old=>[job,...old.filter(x=>x.id!==job.id)]);setSelected(job.id);setAuthorized(false);}}
     catch(e){if(alive.current)setError(e instanceof Error ? e.message : String(e));}
     finally{if(alive.current)setBusy(false);}
   }
+  async function action(kind:"cancel"|"kit",id:string){setBusy(true);setError("");try{if(kind==="cancel")await api.cancelCapture(projectId,id);else await api.buildKit(projectId,id);}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
   const job=items.find(x=>x.id===selected) ?? items[0];
   return <div className="capture-panel">
     <h3>Reference capture</h3>
     <p>Public reference routes · desktop and mobile · computed design evidence · immutable run history.</p>
     <label className="capture-consent"><input type="checkbox" checked={authorized} onChange={e=>setAuthorized(e.target.checked)}/> I am authorized to capture this reference site.</label>
     <button className="primary" disabled={!loaded||!authorized||active||busy} onClick={()=>void start()}>{active?"Capture in progress":busy?"Starting…":"Start capture"}</button>
+    <button className="secondary" disabled={!loaded||!authorized||active||busy} onClick={()=>void start(true)}>Run pipeline (capture + kit)</button>
     {error&&<p role="alert" className="alert error">{error}</p>}
     {job&&<>
       <label>Capture run<select value={job.id} onChange={e=>setSelected(e.target.value)}>{items.map(x=><option key={x.id} value={x.id}>{new Date(x.created_at).toLocaleString()} · {x.status}</option>)}</select></label>
       <p role="status">Status: <strong>{job.status}</strong> · {job.manifest.completed??0}/{job.manifest.total??0} attempts</p>
+      {["queued","running"].includes(job.status)&&<button className="secondary" disabled={busy||job.cancel_requested} onClick={()=>void action("cancel",job.id)}>{job.cancel_requested?"Cancellation requested":"Cancel capture"}</button>}
+      <h3>Pipeline checkpoint</h3>
+      <p>Kit: {job.kit_status??"not_requested"}</p>
+      {job.kit_info?.error&&<p role="alert">{job.kit_info.error}</p>}
+      {["completed","partial"].includes(job.status)&&!job.cancel_requested&&["pending","failed","not_requested"].includes(job.kit_status??"not_requested")&&<button className="secondary" disabled={busy} onClick={()=>void action("kit",job.id)}>Build / retry kit from saved capture</button>}
+      {job.kit_status==="ready"&&<><p>SHA256: <code>{job.kit_info?.sha256}</code></p><a className="primary" href={"/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/pipeline-kit"} download>Download pipeline kit</a><p>Review ZIP locally before using site-transfer publish.</p></>}
       {job.error&&<p className="alert error">{job.error}</p>}
       <div className="capture-grid">{(job.manifest.artifacts??[]).map((a,i)=>{
         const src="/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/screenshots/"+i;
