@@ -10,6 +10,7 @@ from .measurements import measure
 from .design_tokens import summarize, aggregate
 from .interactions import inspect_interactions
 from .assets import inventory, combine
+from .pipeline import CaptureCancelled
 
 DEFAULT_VIEWPORTS = [
     {"name": "desktop", "width": 1440, "height": 900},
@@ -23,7 +24,7 @@ def write_json(path, value):
     os.replace(temp, path)
 
 
-def capture_site(config, root: Path, progress=lambda data: None):
+def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambda: False):
     expected = public_url(config["source"]["url"])
     routes, limit = seed_routes(config)
     views = config.get("viewports", DEFAULT_VIEWPORTS)
@@ -65,6 +66,8 @@ def capture_site(config, root: Path, progress=lambda data: None):
         while index < len(routes):
             url = routes[index]
             for view_index, viewport in enumerate(views):
+                if cancelled():
+                    raise CaptureCancelled('Capture cancelled at viewport boundary')
                 context = context_for(browser, viewport, expected)
                 try:
                     page = context.new_page()

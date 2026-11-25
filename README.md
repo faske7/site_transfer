@@ -32,3 +32,5 @@ PR-05 adds sampled design intelligence to new reference captures. See [design ev
 PR-06 adds bounded asset inventory and portable Codex Reference Kit export. See [reference kit](docs/REFERENCE_KIT.md).
 
 PR-07 adds saved-run visual comparison, pixel diffs and sampled structural reports. See [comparison](docs/COMPARISON.md).
+
+PR-08 adds capture-to-kit pipeline and reviewed host GitHub publication. See [pipeline](docs/PIPELINE.md).
