@@ -9,6 +9,8 @@ from .discovery import normalize, seed_routes
 from .measurements import measure
 from .design_tokens import summarize, aggregate
 from .interactions import inspect_interactions
+from .interaction_capture import planned_states, capture_state, LIMITATIONS
+from .config import validate_config
 from .assets import inventory, combine
 from .pipeline import CaptureCancelled
 
@@ -25,6 +27,7 @@ def write_json(path, value):
 
 
 def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambda: False):
+    validate_config(config)
     expected = public_url(config["source"]["url"])
     routes, limit = seed_routes(config)
     views = config.get("viewports", DEFAULT_VIEWPORTS)
@@ -40,6 +43,7 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
     assets_enabled = config.get('assets', {}).get('enabled', True)
     measurements = config.get('measurements', {}).get('enabled', True)
     interactions = config.get('interactions', {}).get('enabled', True)
+    states = planned_states(config, routes, views) if interactions else []
     done = 0
     timeout = min(config.get("browser", {}).get("timeout_ms", 30000), 30000)
 
@@ -55,6 +59,12 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
             data["asset_manifest"] = "asset-manifest.json"
             data["asset_count"] = catalog["count"]
             write_json(root / "asset-manifest.json", catalog)
+        if states:
+            interaction_report = {"schema_version": 1, "states": list(states), "limitations": LIMITATIONS}
+            write_json(root / "interaction-manifest.json", interaction_report)
+            data["interaction_manifest"] = "interaction-manifest.json"
+            data["interaction_sha256"] = hashlib.sha256((root / "interaction-manifest.json").read_bytes()).hexdigest()
+            data["interaction_states"] = list(states)
         write_json(root / "routes.json", routes)
         write_json(root / "capture-manifest.json", data)
         progress(data)
@@ -68,6 +78,7 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
             for view_index, viewport in enumerate(views):
                 if cancelled():
                     raise CaptureCancelled('Capture cancelled at viewport boundary')
+                baseline_index = None
                 context = context_for(browser, viewport, expected)
                 try:
                     page = context.new_page()
@@ -105,6 +116,7 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     artifacts.append({"path": relative.as_posix(), "url": url, "viewport": viewport["name"],
                                       "width": viewport["width"], "height": viewport["height"],
                                       "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
+                    baseline_index = len(artifacts) - 1
                     if snapshot is not None:
                         try:
                             summary = summarize(snapshot)
@@ -123,11 +135,28 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                                                    "summary": summary})
                         except Exception as exc:
                             errors.append({"url": url, "viewport": viewport["name"], "stage": "design", "error": str(exc)[:500]})
+                except CaptureCancelled:
+                    raise
                 except Exception as exc:
                     errors.append({"url": url, "viewport": viewport["name"], "error": str(exc)[:500]})
                 finally:
                     context.close()
                 done += 1
                 record()
+                for state_index, state in enumerate(states):
+                    if state["url"] != url or state["viewport"] != viewport["name"]:
+                        continue
+                    if cancelled():
+                        raise CaptureCancelled("Capture cancelled at interaction boundary")
+                    if baseline_index is None:
+                        result = dict(state, status="skipped", reason="Baseline unavailable")
+                    else:
+                        result = capture_state(browser, viewport, expected, root, state, cancelled)
+                        result["baseline_index"] = baseline_index
+                    states[state_index] = result
+                    if result["status"] != "captured":
+                        errors.append({"url": url, "viewport": viewport["name"], "stage": "interaction",
+                                       "state_id": state["id"], "error": result["reason"]})
+                    record()
             index += 1
     return record()

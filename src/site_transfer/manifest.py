@@ -37,6 +37,41 @@ def digest(path):
     return h.hexdigest()
 
 
+def interaction_files(manifest):
+    """Validate the recorded manifest and exact state screenshot names."""
+    import re
+    states=manifest.get("interaction_states", [])
+    if not states and not manifest.get("interaction_manifest"):
+        return {}
+    if manifest.get("interaction_manifest")!="interaction-manifest.json":
+        raise ValueError("Invalid interaction manifest")
+    checksum=manifest.get("interaction_sha256","")
+    if not re.fullmatch(r"[a-f0-9]{64}",checksum):
+        raise ValueError("Invalid interaction manifest hash")
+    files={"interaction-manifest.json":checksum}
+    seen=set()
+    for state in states:
+        state_id,viewport=state["id"],state["viewport"]
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,39}",state_id) or not re.fullmatch(r"[A-Za-z0-9_-]+",viewport):
+            raise ValueError("Invalid interaction identity")
+        identity=(state_id,viewport)
+        if identity in seen:
+            raise ValueError("Duplicate interaction identity")
+        seen.add(identity)
+        if state["status"] not in ("captured","skipped","failed","not_attempted"):
+            raise ValueError("Invalid interaction status")
+        if state["status"]!="captured":
+            if "path" in state or "sha256" in state:
+                raise ValueError("Uncaptured state references image")
+            continue
+        expected=f"interactions/{viewport}/{state_id}.png"
+        checksum=state.get("sha256","")
+        if state.get("path")!=expected or not re.fullmatch(r"[a-f0-9]{64}",checksum):
+            raise ValueError("Invalid interaction screenshot")
+        files[expected]=checksum
+    return files
+
+
 def selected_files(manifest):
     files = {"routes.json": None, "capture-manifest.json": None}
     for item in manifest.get("artifacts", []):
@@ -54,6 +89,7 @@ def selected_files(manifest):
             if manifest[key] != name:
                 raise ValueError("Invalid manifest reference")
             files[name] = None
+    files.update(interaction_files(manifest))
     return files
 
 
@@ -78,6 +114,10 @@ def build_kit(config, job, root, output):
         entries.append((name, path, size, checksum))
     if json.loads(evidence_file(root, "capture-manifest.json").read_text()) != manifest:
         raise ValueError("Capture manifest differs from registry")
+    if manifest.get("interaction_manifest"):
+        report=json.loads(evidence_file(root,"interaction-manifest.json").read_text())
+        if report.get("states")!=manifest.get("interaction_states"):
+            raise ValueError("Interaction manifest differs from registry")
     with TemporaryDirectory() as directory:
         docs = initialize_project(config, Path(directory))
         task = docs / "TASK.md"
@@ -99,6 +139,7 @@ def build_kit(config, job, root, output):
         with (docs / "CONTEXT.md").open("a", encoding="utf-8") as handle:
             handle.write(f"\n## Selected reference evidence\nRun: {job['id']} ({job['status']}). "
                          f"{len(manifest['artifacts'])} screenshots; {len(manifest.get('design_reports', []))} design reports; "
+                         f"{sum(s['status']=='captured' for s in manifest.get('interaction_states', []))} interaction screenshots; "
                          f"{len(manifest.get('errors', []))} recorded errors. "
                          "See design/reference/capture-manifest.json for coverage and gaps. "
                          "No target implementation or visual comparison has been verified.\n")

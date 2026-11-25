@@ -60,6 +60,25 @@ def validate_config(config: object) -> dict:
     names = [v["name"] for v in config.get("viewports", [])]
     if len(names) != len(set(names)):
         raise ConfigError("Viewport names must be unique")
+    scenarios = config.get("interactions", {}).get("scenarios", [])
+    if scenarios:
+        from .discovery import seed_routes
+        ids = [s["id"] for s in scenarios]
+        if len(ids) != len(set(ids)):
+            raise ConfigError("Interaction scenario IDs must be unique")
+        if not config["interactions"].get("enabled", True):
+            raise ConfigError("Enable interactions before declaring scenarios")
+        allowed_views = set(names or ["desktop", "mobile"])
+        try:
+            routes, _ = seed_routes(config)
+        except ValueError as exc:
+            raise ConfigError("Interaction scenarios require default HTTP(S) ports") from exc
+        allowed_routes = {urlsplit(url).path or "/" for url in routes}
+        for scenario in scenarios:
+            if scenario["route"] not in allowed_routes:
+                raise ConfigError("Interaction scenario route must be an explicit seed within the capture limit")
+            if not set(scenario.get("viewports", allowed_views)).issubset(allowed_views):
+                raise ConfigError("Interaction scenario references an unknown viewport")
     if config.get("documentation", {}).get("language", "en") != "en":
         raise ConfigError("PR-01 documentation supports only English")
     return config

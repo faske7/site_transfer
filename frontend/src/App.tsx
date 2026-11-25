@@ -132,7 +132,7 @@ export default function App() {
           </fieldset>}
           <div className="actions"><button type="button" className="secondary" disabled={busy} onClick={e => { if(e.currentTarget.form?.reportValidity()) void submit(e as unknown as FormEvent<HTMLFormElement>,false); }}>Validate configuration</button><button className="primary" type="submit" disabled={busy}>{busy ? "Working…" : "Create project"}</button></div>
         </form>
-        <p className="muted">This creates a documentation scaffold only; it does not visit the reference site.</p>
+        <p className="muted">This creates a documentation scaffold only; it does not visit the reference site. For explicit hover, focus, click or scroll states, import a JSON configuration with interactions.scenarios.</p>
       </section>}
       <footer>Site Transfer Studio · Local workspace · Reference capture</footer>
     </main>
