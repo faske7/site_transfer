@@ -6,7 +6,7 @@
 | Stage | Work | Acceptance |
 |---|---|---|
 | PR-10 | Job lifecycle: durable attempt/lease, heartbeat, bounded stale recovery, cancel/retry fencing, durable stage events, worker readiness | Simulate killed worker, lost dispatch, duplicate delivery and cancel race; no stuck active jobs; preserve evidence; idempotent checkpoint retry |
-| PR-11 | Backup/restore: database + evidence manifest, consistent export/import, schema compatibility, restore dry-run, safe desktop diagnostics | Restore into isolated volumes; compare projects, run IDs and artifact hashes; no overwrite of existing data |
+| PR-11 (deferred by user) | Backup/restore: database + evidence manifest, consistent export/import, schema compatibility, restore dry-run, safe desktop diagnostics | Restore into isolated volumes; compare projects, run IDs and artifact hashes; no overwrite of existing data |
 | PR-12 | Reproducible builds and security baseline: npm/Cargo locks, browser fixture, Docker integration, Rust capability negative tests, port collision, unavailable Docker, clean install, upgrade/uninstall; redirect and egress review | All gates on ARM64, actual tests not mocked where integration needed, app/dmg hashes, no secrets in bundles |
 
 ## Phase B — evidence quality / v0.10 (P1)
@@ -37,4 +37,4 @@
 - Evidence quality metrics: planned vs captured route/state coverage, verified hash rate, visual diff by state/viewport, repeated capture count, token/time benchmark. Baseline before claiming improvements.
 - Maintain mandatory CONTEXT.md and AGENTS.md in every target; no unauthorized copying or destructive browser actions.
 
-Recommendation: start PR-10 job lifecycle before adding new capabilities. Avoid marketing v1.0 or claiming measured token savings before gates pass.
+PR-10 accepted and merged. PR-11 deferred by user; backup/restore remains an unmet release gate. PR-12 security/build baseline is next, followed by PR-13 interaction coverage. Avoid marketing v1.0 or claiming measured token savings before gates pass.
