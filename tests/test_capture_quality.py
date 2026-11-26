@@ -174,7 +174,29 @@ def test_device_full_page_timeout_falls_back(page,tmp_path,monkeypatch):
 def test_device_delayed_long_page(page,tmp_path):
     load(page,"""<body><script>setTimeout(()=>document.body.innerHTML=
         '<h1>Hydrated</h1><div style="background:blue;height:2200px"></div>',2200)</script></body>""")
-    result=capture_png(page,tmp_path/"evidence.png",origin(URL),lambda:False,18000,device=True)
+    try:
+        result=capture_png(page,tmp_path/"evidence.png",origin(URL),lambda:False,18000,device=True)
+    except QualityFailure as exc:
+        pytest.fail(repr(exc.quality))
     assert result["screenshot_mode"]=="full_page"
+    assert result["attempts"][0]["readiness"]["status"]=="settled"
     assert result["attempts"][0]["readiness"]["sample"]["height"]>2000
     assert result["attempts"][0]["screenshot_timeout_ms"]>=3000
+
+
+def test_script_only_shell_not_ready(page):
+    from site_transfer.page_readiness import wait_ready
+    load(page,"<body><script>window.fixtureLoaded=true</script></body>")
+    result=wait_ready(page,monotonic()+.8,lambda:False,min_ms=100)
+    assert result["status"]=="unsettled"
+    assert result["sample"]["text"]==0
+    assert result["sample"]["visual_hint"] is False
+
+
+def test_text_free_visual_page_can_settle(page):
+    from site_transfer.page_readiness import wait_ready
+    load(page,"<body><div style='width:100px;height:100px;background:blue'></div></body>")
+    result=wait_ready(page,monotonic()+2,lambda:False,min_ms=100)
+    assert result["status"]=="settled"
+    assert result["sample"]["text"]==0
+    assert result["sample"]["visual_hint"] is True

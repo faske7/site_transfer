@@ -27,7 +27,7 @@ def capture_png(page, target, expected, cancelled, timeout_ms, *, device=False):
         left=remaining_ms(deadline)
         if left<=0:
             break
-        # Reserve at least half of each attempt (up to 5s) for the screenshot.
+        # Reserve half of each attempt, capped at 5s initially / 3s on retry.
         # Retry uses short preparation, rather than repeating a full traversal.
         share=.7 if attempt==0 else 1.0
         start=monotonic()
@@ -42,7 +42,10 @@ def capture_png(page, target, expected, cancelled, timeout_ms, *, device=False):
                                                 min_ms=900 if attempt==0 else 300)
             phase="scroll"
             previous_scroll=attempts[-1].get("scroll",{}) if attempts else {}
-            if attempt and previous_scroll.get("status")=="complete":
+            previous_height=attempts[-1].get("document",{}).get("h") if attempts else None
+            current_height=diagnostic["readiness"]["sample"].get("height")
+            if (attempt and previous_scroll.get("status")=="complete"
+                    and previous_height is not None and current_height==previous_height):
                 diagnostic["scroll"]=dict(previous_scroll,reused=True)
             elif remaining_ms(prep_end) >= 600:
                 diagnostic["scroll"]=smart_scroll(page,min(prep_end-.35,monotonic()+5.0),cancelled)
