@@ -67,3 +67,5 @@ late banners, nested dialogs or full visual completeness. Do not use the
 feature for terms, login, payments or other non-cookie consent.
 
 Fixture verification: synthetic multilingual HTML must declare UTF-8 both in the document and routed HTTP content type. On 8b32449, user regression returned 15 passed and 4 failures involving Czech controls. The fixture lacked both declarations; corrected fixture now asserts decoded Czech labels before testing the handler. Rerun pending, not a production validation.
+
+After UTF-8 correction, targeted user run on 5fd5dc7: three Czech control tests passed, pipeline interaction still failed. The original test document had no visible content at scroll 600; split into positive colored content and negative blank viewport cases, requiring white PNG rejection and exclusion from partial ZIP. This tests rather than weakens the screenshot quality gate. Rerun pending.

@@ -135,18 +135,25 @@ def test_invalid_config(changes):
         validate_config(config)
 
 
-def test_capture_pipeline_consent(browser,tmp_path,monkeypatch):
+@pytest.mark.parametrize("with_scroll_content",[True,False],ids=["visible-content","blank-viewport"])
+def test_capture_pipeline_consent(browser,tmp_path,monkeypatch,with_scroll_content):
     from site_transfer import capture, device_capture, interaction_capture
     from site_transfer.browser import context_for as real_context
     from site_transfer.manifest import build_kit
     from zipfile import ZipFile
     import json
+    from PIL import Image
+
+    # The heading alone is above the viewport after scrolling 600 CSS px.
+    # A successful state must contain real visible reference content.
+    html=HTML.replace('<h1>Reference content</h1>',
+        '<h1>Reference content</h1><section style="position:absolute;top:650px;left:0;right:0;height:700px;background:#174ea6;color:white"><h2>Scrolled reference content</h2></section>') if with_scroll_content else HTML
 
     def context(browser,viewport,expected,network_gate=None,device_options=None):
         ctx=real_context(browser,viewport,expected,network_gate,device_options)
         def route(r):
             if r.request.url==URL and not (network_gate and network_gate["closed"]):
-                r.fulfill(status=200,content_type="text/html; charset=utf-8",body=HTML)
+                r.fulfill(status=200,content_type="text/html; charset=utf-8",body=html)
             else:
                 r.fallback()
         ctx.route("**/*",route)
@@ -166,13 +173,30 @@ def test_capture_pipeline_consent(browser,tmp_path,monkeypatch):
          "measurements":{"device_emulation":{"max_routes":1}}}
     root=tmp_path/"run"
     manifest=capture.capture_site(cfg,root)
-    assert not manifest["errors"],manifest["errors"]
+    diagnostic=json.dumps({"errors":manifest["errors"],"states":manifest["interaction_states"]},ensure_ascii=False,indent=2)
     for key in ("artifacts","capture_quality","device_captures","interaction_states"):
-        assert len(manifest[key])==1
-        assert manifest[key][0]["cookie_consent"]["status"]=="dismissed",manifest[key][0]
-    assert manifest["interaction_states"][0]["after"]["scroll_y"]==600
+        assert len(manifest[key])==1,diagnostic
+        assert manifest[key][0]["cookie_consent"]["status"]=="dismissed",diagnostic
+    state=manifest["interaction_states"][0]
+    assert state["after"]["scroll_y"]==600,diagnostic
+    expected_path="interactions/mobile/scroll.png"
+    if with_scroll_content:
+        assert not manifest["errors"],diagnostic
+        assert state["status"]=="captured",diagnostic
+        assert state["path"]==expected_path
+        with Image.open(root/state["path"]) as image:
+            # Center of the viewport must show the blue section, not a banner.
+            assert image.convert("RGB").getpixel((image.width//2,image.height//2))==(23,78,166)
+    else:
+        assert state["status"]=="failed",diagnostic
+        assert state["failure_stage"]=="validation",diagnostic
+        assert state["code"]=="white_png",diagnostic
+        assert len(manifest["errors"])==1,diagnostic
+        assert manifest["errors"][0]["code"]=="white_png",diagnostic
+        assert "path" not in state and not (root/expected_path).exists()
     output=tmp_path/"kit.zip"
-    build_kit(cfg,{"id":"fixture","status":"completed","manifest":manifest},root,output)
+    build_kit(cfg,{"id":"fixture","status":"completed" if with_scroll_content else "partial","manifest":manifest},root,output)
     with ZipFile(output) as archive:
         saved=json.loads(archive.read("design/reference/capture-manifest.json"))
         assert saved==manifest
+        assert ("design/reference/"+expected_path in archive.namelist())==with_scroll_content
