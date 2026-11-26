@@ -44,3 +44,6 @@ Selected-run ZIP содержит README.md, AGENTS.md, CONTEXT.md, TASK.md, ref
 
 ## Заключение
 MVP 0.9.0 принят для персонального локального применения. Завершение девяти PR не означает полное исполнение каждого расширенного требования исходного SPEC или готовность к публичному распространению. Следующий этап — стабилизация и проверка реального Codex workflow перед расширением продукта. См. ROADMAP.md.
+
+## PR-15 draft — capture quality
+RE/MAX audit exposed white and incomplete evidence. Baseline/device shared readiness, scroll and PNG quality metadata are additive; invalid images are not registered. Existing run hashes, network and recovery contracts remain. See CAPTURE_QUALITY.md and CODEX_FEEDBACK_REMAXDELUX.md. Full regression, Docker GUI and production acceptance pending; do not claim release readiness.

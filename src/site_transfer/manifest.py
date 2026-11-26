@@ -97,6 +97,8 @@ def device_files(manifest):
             if "path" in entry or "sha256" in entry:
                 raise ValueError("Uncaptured device references image")
             continue
+        if entry.get("quality",{}).get("status")=="invalid":
+            raise ValueError("Invalid device evidence")
         slug=hashlib.sha256(entry["url"].encode()).hexdigest()[:16]
         name=f"devices/{entry['id']}/{slug}.png"
         checksum=entry.get("sha256","")
@@ -109,6 +111,8 @@ def device_files(manifest):
 def selected_files(manifest):
     files = {"routes.json": None, "capture-manifest.json": None}
     for item in manifest.get("artifacts", []):
+        if item.get("quality",{}).get("status")=="invalid":
+            raise ValueError("Invalid screenshot evidence")
         name = item["path"]
         if not name.startswith("screenshots/") or not name.endswith(".png") or not item.get("sha256"):
             raise ValueError("Invalid screenshot record")
@@ -169,7 +173,7 @@ def build_kit(config, job, root, output):
             "Use screenshots and computed design observations first; do not repeat browser capture unless a specific gap requires it.\n\n"
             "## Evidence order\n"
             "1. design/reference/capture-manifest.json and routes.json.\n"
-            "2. Matching desktop/mobile screenshots.\n"
+            "2. Matching desktop/mobile screenshots. Check quality warnings and missing attempts; legacy records have unknown quality.\n"
             "3. design-tokens.json and per-viewport design reports if present. V2 includes normalized sampled CSS, layout/semantic metadata and width-only responsive probes; distinguish observed values from declared timing and missing evidence.\n"
             "4. asset-manifest.json if present: inventory only, no license granted.\n\n"
             "## Acceptance\nImplement bounded routes and responsive layouts; compare against matching screenshots, "

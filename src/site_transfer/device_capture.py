@@ -2,11 +2,10 @@
 import hashlib
 from pathlib import Path
 
-from PIL import Image
-
 from .browser import context_for, origin
 from .measurements import measure
 from .pipeline import CaptureCancelled
+from .reliable_capture import capture_png, QualityFailure
 
 PROFILES = (
     ("iphone-13", "iPhone 13", 390, 844, 3, True, True),
@@ -64,12 +63,15 @@ def capture_device(browser, expected, root:Path, entry, cancelled=lambda:False):
         response=page.goto(entry["url"],wait_until="domcontentloaded",timeout=12000)
         if response is None or response.status>=400 or origin(page.url)!=expected:
             raise ValueError("Device page unavailable")
-        page.wait_for_timeout(700)
-        if origin(page.url)!=expected:
-            raise ValueError("Device page changed origin")
         final_url=page.url
         if cancelled():
             raise CaptureCancelled("Capture cancelled before device screenshot")
+        slug=hashlib.sha256(entry["url"].encode()).hexdigest()[:16]
+        relative=Path("devices")/entry["id"]/(slug+".png")
+        target=root/relative
+        target.parent.mkdir(parents=True,exist_ok=True)
+        quality=capture_png(page,target,expected,cancelled,8000,device=True)
+        result["quality"]=quality
         observed=page.evaluate("""() => ({
             inner_width:innerWidth,inner_height:innerHeight,screen_width:screen.width,screen_height:screen.height,
             dpr:devicePixelRatio,max_touch_points:navigator.maxTouchPoints,user_agent:navigator.userAgent,
@@ -82,30 +84,23 @@ def capture_device(browser, expected, root:Path, entry, cancelled=lambda:False):
         snapshot=measure(page,measurements=True,interactions=False)
         from .advanced_design import summarize_advanced
         summary=summarize_advanced(snapshot["elements"])
-        full=(observed["document_width"]<=4096 and observed["document_height"]<=16000
-              and observed["document_width"]*observed["document_height"]<=MAX_PIXELS)
-        slug=hashlib.sha256(entry["url"].encode()).hexdigest()[:16]
-        relative=Path("devices")/entry["id"]/(slug+".png")
-        target=root/relative
-        target.parent.mkdir(parents=True,exist_ok=True)
-        page.screenshot(path=str(target),full_page=full,scale="css",animations="disabled",timeout=8000)
         if cancelled():
             raise CaptureCancelled("Capture cancelled after device screenshot")
         if page.url!=final_url:
             raise ValueError("Device page changed during capture")
-        with Image.open(target) as img:
-            if img.format!="PNG" or img.width*img.height>MAX_PIXELS:
-                raise ValueError("Device image exceeds pixel budget")
-            size=list(img.size)
         result.update(status="captured",path=relative.as_posix(),
                       sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
-                      screenshot_mode="full_page" if full else "viewport",
-                      image_size=size,observed=observed,design=summary,
+                      screenshot_mode=quality["screenshot_mode"],
+                      image_size=quality["image_size"],observed=observed,design=summary,
                       media_queries=snapshot["media_queries"],limits=snapshot["limits"])
     except CaptureCancelled:
         if target is not None:
             target.unlink(missing_ok=True)
         raise
+    except QualityFailure as exc:
+        if target is not None:
+            target.unlink(missing_ok=True)
+        result.update(status="failed",reason=str(exc),quality=exc.quality)
     except Exception:
         if target is not None:
             target.unlink(missing_ok=True)

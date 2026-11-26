@@ -16,6 +16,7 @@ from .interaction_capture import planned_states, capture_state, LIMITATIONS
 from .config import validate_config
 from .assets import inventory, combine
 from .pipeline import CaptureCancelled
+from .reliable_capture import capture_png, QualityFailure
 
 DEFAULT_VIEWPORTS = [
     {"name": "desktop", "width": 1440, "height": 900},
@@ -41,6 +42,7 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
     root.mkdir(parents=True, exist_ok=False)
     artifacts = []
     errors = []
+    capture_quality = []
     design_entries = []
     asset_reports = []
     assets_enabled = config.get('assets', {}).get('enabled', True)
@@ -56,7 +58,8 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
 
     def record():
         data = {"routes": list(routes), "artifacts": list(artifacts), "errors": list(errors),
-                "completed": done, "total": len(routes) * len(views)}
+                "completed": done, "total": len(routes) * len(views),
+                "capture_quality_version": 1, "capture_quality": list(capture_quality)}
         if measurements or interactions:
             data["design_reports"] = [{k: v for k, v in entry.items() if k != "summary"} for entry in design_entries]
             data["design_tokens"] = "design-tokens.json"
@@ -102,22 +105,18 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     response = page.goto(url, wait_until="domcontentloaded", timeout=timeout)
                     if response is None or response.status >= 400 or origin(page.url) != expected:
                         raise ValueError("Page failed or redirected outside source origin")
-                    page.wait_for_timeout(700)
-                    if origin(page.url) != expected:
-                        raise ValueError("Page redirected outside source origin")
+                    name = f"{index + 1:03d}-{hashlib.sha256(url.encode()).hexdigest()[:12]}.png"
+                    relative = Path("screenshots") / viewport["name"] / name
+                    target = root / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    quality = capture_png(page, target, expected, cancelled, timeout)
+                    capture_quality.append({"url":url,"viewport":viewport["name"],"quality":quality})
                     if view_index == 0 and config.get("discovery", {}).get("enabled", True):
                         links = page.locator("a[href]").evaluate_all("(nodes) => nodes.slice(0, 2000).map(a => a.href)")
                         for link in links:
                             candidate = normalize(page.url, link, expected)
                             if candidate and candidate not in routes and len(routes) < limit:
                                 routes.append(candidate)
-                    dimensions = page.evaluate("() => ({w: Math.max(document.documentElement.scrollWidth, innerWidth), h: Math.max(document.documentElement.scrollHeight, innerHeight)})")
-                    if dimensions["h"] > 16000 or dimensions["w"] > 4096 or dimensions["h"] * dimensions["w"] > 40000000:
-                        raise ValueError("Page exceeds full-page screenshot safety limits")
-                    name = f"{index + 1:03d}-{hashlib.sha256(url.encode()).hexdigest()[:12]}.png"
-                    relative = Path("screenshots") / viewport["name"] / name
-                    target = root / relative
-                    target.parent.mkdir(parents=True, exist_ok=True)
                     if assets_enabled:
                         try:
                             asset_reports.append(inventory(page, url, viewport["name"]))
@@ -129,10 +128,9 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                             snapshot = measure(page, measurements, interactions)
                         except Exception as exc:
                             errors.append({"url": url, "viewport": viewport["name"], "stage": "design", "error": str(exc)[:500]})
-                    page.screenshot(path=str(target), full_page=True, animations="disabled", timeout=timeout)
                     artifacts.append({"path": relative.as_posix(), "url": url, "viewport": viewport["name"],
                                       "width": viewport["width"], "height": viewport["height"],
-                                      "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
+                                      "sha256": hashlib.sha256(target.read_bytes()).hexdigest(), "quality": quality})
                     baseline_index = len(artifacts) - 1
                     if snapshot is not None:
                         try:
@@ -172,8 +170,12 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                             errors.append({"url": url, "viewport": viewport["name"], "stage": "design", "error": str(exc)[:500]})
                 except CaptureCancelled:
                     raise
-                except Exception as exc:
-                    errors.append({"url": url, "viewport": viewport["name"], "error": str(exc)[:500]})
+                except QualityFailure as exc:
+                    capture_quality.append({"url":url,"viewport":viewport["name"],"quality":exc.quality})
+                    errors.append({"url":url,"viewport":viewport["name"],"stage":"quality",
+                                   "code":exc.quality["code"],"error":str(exc)})
+                except Exception:
+                    errors.append({"url": url, "viewport": viewport["name"], "stage":"capture", "code":"capture_failed", "error":"Page load or capture failed"})
                 finally:
                     context.close()
                 done += 1

@@ -14,7 +14,9 @@
 |---|---|---|
 | PR-13 | Interaction coverage: explicitly configured safe hover/focus/click/menu/modal/accordion/scroll; state IDs and screenshots; no destructive actions or form submissions | Fixture captures all declared states on desktop/mobile, records skipped/unsafe actions; bounded execution |
 | PR-14 | Design intelligence: responsive breakpoint probes, normalized layout/type/motion tokens, real design-report schema alignment, accessibility metadata, declared vs observed distinction | Fixture expected values match actual JSON; report gaps; compare real cross-project records |
-| PR-15 | Reference Kit v2: route/state matrix, coverage summary, compact indexed task, evidence digests, allowed asset import with explicit rights, selected incremental evidence | Codex uses existing screenshots; no duplicates; missing evidence explicit; verify kit integrity and required docs |
+| PR-15 | Capture reliability and quality: readiness, bounded scroll, PNG validation, retry diagnostics, additive manifest and GUI | Local fixtures, regression, invalid evidence excluded, old manifests readable; draft pending acceptance |
+
+The previously proposed Reference Kit v2 expansion (route/state matrix, compact task, allowed asset import and incremental evidence) is deferred; no PR-16 work is started.
 
 ## Phase C — implementation feedback / v0.11 (P1)
 | Stage | Work | Acceptance |

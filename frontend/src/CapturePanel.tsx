@@ -55,9 +55,12 @@ export default function CapturePanel({projectId}:{projectId:string}) {
       {["completed","partial"].includes(job.status)&&!job.cancel_requested&&["failed","not_requested"].includes(job.kit_status??"not_requested")&&(job.kit_attempt??0)<3&&<button className="secondary" disabled={busy} onClick={()=>void action("kit",job.id)}>Build / retry kit from saved capture</button>}
       {job.kit_status==="ready"&&<><p>SHA256: <code>{job.kit_info?.sha256}</code></p><a className="primary" href={"/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/pipeline-kit"} download>Download pipeline kit</a><p>Review ZIP locally before using site-transfer publish.</p></>}
       {job.error&&<p className="alert error">{job.error}</p>}
+      <h3>Screenshot quality</h3>
+      {job.manifest.capture_quality_version ? <p>{(job.manifest.capture_quality??[]).filter(a=>a.quality.status==="invalid").length} rejected baseline captures · {(job.manifest.capture_quality??[]).filter(a=>a.quality.status==="warning").length} warnings</p> : <p className="muted">Legacy run: screenshot quality unknown.</p>}
+      {(job.manifest.capture_quality??[]).filter(a=>a.quality.status==="invalid").map((a,i)=><p key={i} className="alert error">{a.viewport} · {a.url}: {a.quality.code} ({a.quality.attempts?.map(t=>t.quality?.code).join(", ")})</p>)}
       <div className="capture-grid">{(job.manifest.artifacts??[]).map((a,i)=>{
         const src="/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/screenshots/"+i;
-        return <figure key={a.path}><a href={src} target="_blank" rel="noreferrer"><img loading="lazy" src={src} alt={a.viewport+" screenshot of "+a.url}/></a><figcaption>{a.viewport} · {a.width} × {a.height}<small>{a.url}</small></figcaption></figure>;
+        return <figure key={a.path}><a href={src} target="_blank" rel="noreferrer"><img loading="lazy" src={src} alt={a.viewport+" screenshot of "+a.url}/></a><figcaption>{a.viewport} · {a.width} × {a.height}<small>{a.url}</small><small>Quality: {a.quality?.status??"unknown"} {a.quality?.warnings?.join(", ")}</small></figcaption></figure>;
       })}</div>
       <h3>Device emulation</h3>
       {job.manifest.device_manifest ? <>
@@ -67,7 +70,7 @@ export default function CapturePanel({projectId}:{projectId:string}) {
           const src="/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/devices/"+i;
           return <figure key={d.id+"-"+d.url}>
             {d.status==="captured"&&<a href={src} target="_blank" rel="noreferrer"><img loading="lazy" src={src} alt={d.label+" "+d.url}/></a>}
-            <figcaption><strong>{d.label}</strong> · {d.width} × {d.height} · DPR {d.dpr} · {d.status}<small>{d.url}</small><small>{d.screenshot_mode??d.reason}</small></figcaption>
+            <figcaption><strong>{d.label}</strong> · {d.width} × {d.height} · DPR {d.dpr} · {d.status}<small>{d.url}</small><small>{d.screenshot_mode??d.reason}</small><small>Quality: {d.quality?.status??"unknown"} · {d.quality?.warnings?.join(", ") || d.quality?.code}</small></figcaption>
           </figure>;
         })}</div>
       </> : <p className="muted">No device profile evidence for this run.</p>}
