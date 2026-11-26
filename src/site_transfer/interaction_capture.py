@@ -8,6 +8,7 @@ from .browser import context_for, origin
 from .pipeline import CaptureCancelled
 from .screenshot_quality import inspect_png
 from .page_readiness import wait_ready, check_cancelled
+from .cookie_consent import handle_cookie_consent, consent_quality
 
 LIMITATIONS = [
     "One declared action per fresh browser context; no typing, submission, authentication or arbitrary scripts.",
@@ -133,7 +134,7 @@ def observe(page, state):
     return before,after,verified
 
 
-def capture_state(browser, viewport, expected, root: Path, state, cancelled=lambda:False):
+def capture_state(browser, viewport, expected, root: Path, state, cancelled=lambda:False, *, consent_config=None):
     if cancelled():
         raise CaptureCancelled("Capture cancelled before interaction")
     result=dict(state)
@@ -155,6 +156,11 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
             raise StateFailure("initial_load_failed","Initial state load failed")
         if page.url!=state["url"] or origin(page.url)!=expected or popups:
             raise StateFailure("navigation_changed","Initial state navigated away or opened a popup")
+        stage="cookie_consent"
+        consent=handle_cookie_consent(page,expected,consent_config,cancelled)
+        result["cookie_consent"]=consent
+        if consent["code"]=="navigation_changed" or popups or page.url!=state["url"]:
+            raise StateFailure("navigation_changed","Cookie consent navigation rejected")
         stage="readiness"
         # Allow bounded normal loading before the offline gate; no action yet.
         result["readiness"]=wait_ready(page,monotonic()+5.0,cancelled,
@@ -210,6 +216,7 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
             warnings.append(quality["code"])
         if warnings:
             result["quality"]=dict(quality,status="warning",warnings=warnings)
+        result["quality"]=consent_quality(result["quality"],consent)
         stage="publication"
         target.write_bytes(data)
         result.update(status="captured",path=relative.as_posix(),

@@ -6,6 +6,7 @@ from .browser import context_for, origin
 from .measurements import measure
 from .pipeline import CaptureCancelled
 from .reliable_capture import capture_png, QualityFailure, DEVICE_TIMEOUT_MS
+from .cookie_consent import handle_cookie_consent, consent_quality
 
 PROFILES = (
     ("iphone-13", "iPhone 13", 390, 844, 3, True, True),
@@ -50,7 +51,7 @@ def planned_devices(url):
     return [dict(profile,url=url,status="not_attempted") for profile in profiles()]
 
 
-def capture_device(browser, expected, root:Path, entry, cancelled=lambda:False):
+def capture_device(browser, expected, root:Path, entry, cancelled=lambda:False, *, consent_config=None):
     if cancelled():
         raise CaptureCancelled("Capture cancelled before device capture")
     result=dict(entry)
@@ -64,13 +65,17 @@ def capture_device(browser, expected, root:Path, entry, cancelled=lambda:False):
         if response is None or response.status>=400 or origin(page.url)!=expected:
             raise ValueError("Device page unavailable")
         final_url=page.url
+        consent=handle_cookie_consent(page,expected,consent_config,cancelled)
+        result['cookie_consent']=consent
+        if consent['code']=='navigation_changed':
+            raise ValueError('Cookie consent navigation rejected')
         if cancelled():
             raise CaptureCancelled("Capture cancelled before device screenshot")
         slug=hashlib.sha256(entry["url"].encode()).hexdigest()[:16]
         relative=Path("devices")/entry["id"]/(slug+".png")
         target=root/relative
         target.parent.mkdir(parents=True,exist_ok=True)
-        quality=capture_png(page,target,expected,cancelled,DEVICE_TIMEOUT_MS,device=True)
+        quality=consent_quality(capture_png(page,target,expected,cancelled,DEVICE_TIMEOUT_MS,device=True),consent)
         result["quality"]=quality
         observed=page.evaluate("""() => ({
             inner_width:innerWidth,inner_height:innerHeight,screen_width:screen.width,screen_height:screen.height,

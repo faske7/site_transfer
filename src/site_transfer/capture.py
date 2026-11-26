@@ -17,6 +17,7 @@ from .config import validate_config
 from .assets import inventory, combine
 from .pipeline import CaptureCancelled
 from .reliable_capture import capture_png, QualityFailure
+from .cookie_consent import handle_cookie_consent, consent_unresolved, consent_quality
 
 DEFAULT_VIEWPORTS = [
     {"name": "desktop", "width": 1440, "height": 900},
@@ -55,6 +56,7 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
     scenario_states = planned_states(config, routes, views) if interactions else []
     done = 0
     timeout = min(config.get("browser", {}).get("timeout_ms", 30000), 30000)
+    consent_config = config.get("browser", {}).get("cookie_consent", {})
 
     def record():
         data = {"routes": list(routes), "artifacts": list(artifacts), "errors": list(errors),
@@ -99,21 +101,28 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                 if cancelled():
                     raise CaptureCancelled('Capture cancelled at viewport boundary')
                 baseline_index = None
+                consent = None
                 context = context_for(browser, viewport, expected)
                 try:
                     page = context.new_page()
                     response = page.goto(url, wait_until="domcontentloaded", timeout=timeout)
                     if response is None or response.status >= 400 or origin(page.url) != expected:
                         raise ValueError("Page failed or redirected outside source origin")
+                    consent = handle_cookie_consent(page, expected, consent_config, cancelled)
+                    if consent_unresolved(consent):
+                        errors.append({"url":url,"viewport":viewport["name"],"stage":"cookie_consent",
+                                       "code":consent["code"],"error":"Cookie consent: "+consent["code"]})
+                    if consent["code"]=="navigation_changed":
+                        raise ValueError("Cookie consent navigation rejected")
                     name = f"{index + 1:03d}-{hashlib.sha256(url.encode()).hexdigest()[:12]}.png"
                     relative = Path("screenshots") / viewport["name"] / name
                     target = root / relative
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    quality = capture_png(page, target, expected, cancelled, timeout)
-                    capture_quality.append({"url":url,"viewport":viewport["name"],"quality":quality})
+                    quality = consent_quality(capture_png(page, target, expected, cancelled, timeout), consent)
+                    capture_quality.append({"url":url,"viewport":viewport["name"],"quality":quality,"cookie_consent":consent})
                     artifacts.append({"path": relative.as_posix(), "url": url, "viewport": viewport["name"],
                                       "width": viewport["width"], "height": viewport["height"],
-                                      "sha256": hashlib.sha256(target.read_bytes()).hexdigest(), "quality": quality})
+                                      "sha256": hashlib.sha256(target.read_bytes()).hexdigest(), "quality": quality, "cookie_consent": consent})
                     baseline_index = len(artifacts) - 1
                     if view_index == 0 and config.get("discovery", {}).get("enabled", True):
                         links = page.locator("a[href]").evaluate_all("(nodes) => nodes.slice(0, 2000).map(a => a.href)")
@@ -171,13 +180,13 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                 except CaptureCancelled:
                     raise
                 except QualityFailure as exc:
-                    capture_quality.append({"url":url,"viewport":viewport["name"],"quality":exc.quality})
+                    capture_quality.append({"url":url,"viewport":viewport["name"],"quality":exc.quality,"cookie_consent":consent})
                     errors.append({"url":url,"viewport":viewport["name"],"stage":"quality",
                                    "code":exc.quality["code"],"error":str(exc)})
                 except Exception as exc:
                     code="capture_timeout" if type(exc).__name__=="TimeoutError" else "capture_failed"
                     if baseline_index is None:
-                        capture_quality.append({"url":url,"viewport":viewport["name"],"quality":{"status":"invalid","code":code}})
+                        capture_quality.append({"url":url,"viewport":viewport["name"],"quality":{"status":"invalid","code":code},"cookie_consent":consent})
                     errors.append({"url": url, "viewport": viewport["name"], "stage":"capture", "code":code, "error":"Page load or capture failed"})
                 finally:
                     context.close()
@@ -191,9 +200,13 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     if baseline_index is None:
                         result = dict(state, status="skipped", reason="Baseline unavailable")
                     else:
-                        result = capture_state(browser, viewport, expected, root, state, cancelled)
+                        result = capture_state(browser, viewport, expected, root, state, cancelled, consent_config=consent_config)
                         result["baseline_index"] = baseline_index
                     scenario_states[state_index] = result
+                    if consent_unresolved(result.get("cookie_consent",{})):
+                        errors.append({"url":url,"viewport":viewport["name"],"stage":"cookie_consent",
+                                       "state_id":state["id"],"code":result["cookie_consent"]["code"],
+                                       "error":"Cookie consent: "+result["cookie_consent"]["code"]})
                     if result["status"] != "captured":
                         errors.append({"url": url, "viewport": viewport["name"], "stage": "interaction",
                                        "state_id": state["id"], "error": result["reason"],
@@ -207,8 +220,11 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     device = device_entries[device_index]
                     if cancelled():
                         raise CaptureCancelled("Capture cancelled at device boundary")
-                    result = capture_device(browser, expected, root, device, cancelled)
+                    result = capture_device(browser, expected, root, device, cancelled, consent_config=consent_config)
                     device_entries[device_index] = result
+                    if consent_unresolved(result.get("cookie_consent",{})):
+                        errors.append({"url":url,"viewport":device["id"],"stage":"cookie_consent",
+                                       "code":result["cookie_consent"]["code"],"error":"Cookie consent: "+result["cookie_consent"]["code"]})
                     if result["status"] != "captured":
                         errors.append({"url":url,"viewport":device["id"],"stage":"device",
                                        "error":result["reason"],"code":result.get("quality",{}).get("code","device_failed")})

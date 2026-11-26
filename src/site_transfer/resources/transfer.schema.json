@@ -96,6 +96,100 @@
           "type": "integer",
           "minimum": 1000,
           "maximum": 120000
+        },
+        "cookie_consent": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "strategy": {
+              "enum": [
+                "reject_optional",
+                "accept_all",
+                "necessary_only",
+                "manual_selector",
+                "disabled"
+              ],
+              "default": "reject_optional"
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 8000,
+              "default": 5000
+            },
+            "detect_automatically": {
+              "type": "boolean",
+              "default": true
+            },
+            "banner_selector": {
+              "type": "string",
+              "maxLength": 160,
+              "pattern": "^(?:[.#][A-Za-z_][A-Za-z0-9_-]*|\\[data-testid=\"[A-Za-z0-9_-]+\"\\])$"
+            },
+            "selectors": {
+              "type": "array",
+              "maxItems": 5,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 160,
+                "pattern": "^(?:[.#][A-Za-z_][A-Za-z0-9_-]*|\\[data-testid=\"[A-Za-z0-9_-]+\"\\])$"
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "strategy"
+                ],
+                "properties": {
+                  "strategy": {
+                    "const": "manual_selector"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "banner_selector",
+                  "selectors"
+                ],
+                "properties": {
+                  "selectors": {
+                    "minItems": 1
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "selectors": {
+                    "maxItems": 0
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "required": [
+                  "detect_automatically"
+                ],
+                "properties": {
+                  "detect_automatically": {
+                    "const": false
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "banner_selector"
+                ]
+              }
+            }
+          ]
         }
       }
     },
