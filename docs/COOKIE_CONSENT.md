@@ -65,3 +65,5 @@ detection may miss custom CMPs. Review actual images even for dismissed.
 No guarantee of vendor-specific preference persistence, tracking prevention,
 late banners, nested dialogs or full visual completeness. Do not use the
 feature for terms, login, payments or other non-cookie consent.
+
+Fixture verification: synthetic multilingual HTML must declare UTF-8 both in the document and routed HTTP content type. On 8b32449, user regression returned 15 passed and 4 failures involving Czech controls. The fixture lacked both declarations; corrected fixture now asserts decoded Czech labels before testing the handler. Rerun pending, not a production validation.

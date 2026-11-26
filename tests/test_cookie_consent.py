@@ -8,7 +8,7 @@ from site_transfer.pipeline import CaptureCancelled
 
 URL="https://example.com/"
 OPTIONS={"enabled":True,"timeout_ms":2000}
-HTML="""<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
+HTML="""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>body{height:1800px} #cookie-banner{position:fixed;inset:0;background:white;z-index:999}</style>
 <h1>Reference content</h1>
 <div id="cookie-banner">Cookies
@@ -43,7 +43,7 @@ def page(browser):
 
 
 def load(page,html):
-    page.route("**/*",lambda r:r.fulfill(status=200,content_type="text/html",body=html)
+    page.route("**/*",lambda r:r.fulfill(status=200,content_type="text/html; charset=utf-8",body=html)
                if r.request.url==URL else r.abort())
     page.goto(URL)
 
@@ -51,6 +51,9 @@ def load(page,html):
 @pytest.mark.parametrize("strategy,choice",[("reject_optional","reject"),("accept_all","accept")])
 def test_czech_consent(page,strategy,choice):
     load(page,HTML)
+    assert page.evaluate("document.characterSet")=="UTF-8"
+    assert page.locator("#reject").inner_text()=="Odmítnout vše"
+    assert page.locator("#accept").inner_text()=="Přijmout vše"
     result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,strategy=strategy))
     assert result["status"]=="dismissed",result
     assert page.evaluate("window.choice")==choice
@@ -143,7 +146,7 @@ def test_capture_pipeline_consent(browser,tmp_path,monkeypatch):
         ctx=real_context(browser,viewport,expected,network_gate,device_options)
         def route(r):
             if r.request.url==URL and not (network_gate and network_gate["closed"]):
-                r.fulfill(status=200,content_type="text/html",body=HTML)
+                r.fulfill(status=200,content_type="text/html; charset=utf-8",body=HTML)
             else:
                 r.fallback()
         ctx.route("**/*",route)
