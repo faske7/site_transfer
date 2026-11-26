@@ -174,3 +174,59 @@ def test_kit_state_evidence(tmp_path):
     states[0]["path"]="../escape.png"
     with pytest.raises(ValueError):
         interaction_files(manifest)
+
+
+@pytest.mark.parametrize("with_scenarios", [False, True])
+def test_full_capture_with_design_and_interactions(browser, tmp_path, monkeypatch, with_scenarios):
+    """Exercise the actual capture_site loop, not only individual state probes."""
+    from contextlib import nullcontext
+    from site_transfer import capture, interaction_capture
+    from site_transfer.browser import context_for as real_context_for
+
+    def fixture_context(browser, viewport, expected, network_gate=None):
+        ctx = real_context_for(browser, viewport, expected, network_gate)
+        def fixture_route(route):
+            if route.request.url == "https://example.com/" and not (
+                network_gate and network_gate.get("closed")
+            ):
+                route.fulfill(status=200, content_type="text/html", body=HTML)
+            else:
+                route.fallback()
+        ctx.route("**/*", fixture_route)
+        return ctx
+
+    monkeypatch.setattr(capture, "chromium", lambda: nullcontext(browser))
+    monkeypatch.setattr(capture, "public_url", origin)
+    monkeypatch.setattr(capture, "context_for", fixture_context)
+    monkeypatch.setattr(interaction_capture, "context_for", fixture_context)
+    cfg = config([scenario(expect_visible="#panel")] if with_scenarios else [])
+    root = tmp_path / "run"
+    manifest = capture.capture_site(cfg, root)
+    assert manifest["errors"] == []
+    assert manifest["completed"] == manifest["total"] == 2
+    assert len(manifest["artifacts"]) == len(manifest["design_reports"]) == 2
+    assert json.loads((root / "capture-manifest.json").read_text()) == manifest
+    for entry in manifest["design_reports"]:
+        report = json.loads((root / entry["path"]).read_text())
+        assert isinstance(report["interactions"]["hover"], list)
+    if with_scenarios:
+        states = manifest["interaction_states"]
+        assert len(states) == 2
+        assert {s["viewport"] for s in states} == {"desktop", "mobile"}
+        for state in states:
+            assert state["id"] == "menu"
+            assert state["status"] == "captured", state
+            assert state["expectation_verified"] is True
+            assert manifest["artifacts"][state["baseline_index"]]["viewport"] == state["viewport"]
+            assert hashlib.sha256((root / state["path"]).read_bytes()).hexdigest() == state["sha256"]
+        report = root / "interaction-manifest.json"
+        assert json.loads(report.read_text())["states"] == states
+        assert hashlib.sha256(report.read_bytes()).hexdigest() == manifest["interaction_sha256"]
+    else:
+        assert "interaction_states" not in manifest
+        assert not (root / "interaction-manifest.json").exists()
+    output = tmp_path / "kit.zip"
+    build_kit(cfg, {"id":"fixture", "status":"completed", "manifest":manifest}, root, output)
+    with ZipFile(output) as archive:
+        assert ("design/reference/interaction-manifest.json" in archive.namelist()) == with_scenarios
+        assert len([name for name in archive.namelist() if name.startswith("design/reference/interactions/")]) == (2 if with_scenarios else 0)
