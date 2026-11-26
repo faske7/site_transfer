@@ -2,7 +2,7 @@
 import os
 from tempfile import NamedTemporaryFile
 from starlette.background import BackgroundTask
-from site_transfer.manifest import build_kit, evidence_file, interaction_files
+from site_transfer.manifest import build_kit, evidence_file, interaction_files, device_files
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -186,6 +186,40 @@ def interaction_manifest(project_id: UUID,job_id: UUID):
 @app.get("/api/v1/projects/{project_id}/captures/{job_id}/interactions/{index}")
 def interaction_screenshot(project_id: UUID,job_id: UUID,index: int):
     return _interaction_response(project_id,job_id,index)
+
+
+def _device_response(project_id, job_id, index=None):
+    job=jobs.get(project_id,job_id)
+    if job is None:
+        raise HTTPException(status_code=404,detail="Capture not found")
+    manifest=job["manifest"]
+    try:
+        files=device_files(manifest)
+        name="device-manifest.json"
+        if index is not None:
+            entries=manifest.get("device_captures",[])
+            if not 0<=index<len(entries) or entries[index]["status"]!="captured":
+                raise ValueError("Device screenshot unavailable")
+            name=entries[index]["path"]
+        if name not in files:
+            raise ValueError("Device evidence unavailable")
+        path=evidence_file(run_root(project_id,job_id),name)
+        if digest(path)!=files[name]:
+            raise ValueError("Device checksum mismatch")
+    except (ValueError,OSError,KeyError,TypeError) as exc:
+        raise HTTPException(status_code=404,detail="Device evidence unavailable") from exc
+    return FileResponse(path,media_type="application/json" if index is None else "image/png",
+                        headers={"X-Content-Type-Options":"nosniff"})
+
+
+@app.get("/api/v1/projects/{project_id}/captures/{job_id}/devices")
+def device_manifest(project_id: UUID,job_id: UUID):
+    return _device_response(project_id,job_id)
+
+
+@app.get("/api/v1/projects/{project_id}/captures/{job_id}/devices/{index}")
+def device_screenshot(project_id: UUID,job_id: UUID,index: int):
+    return _device_response(project_id,job_id,index)
 
 
 def _design_response(project_id, job_id, index=None):

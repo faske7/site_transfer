@@ -200,6 +200,7 @@ def test_full_capture_with_design_and_interactions(browser, tmp_path, monkeypatc
     monkeypatch.setattr(capture, "context_for", fixture_context)
     monkeypatch.setattr(interaction_capture, "context_for", fixture_context)
     cfg = config([scenario(expect_visible="#panel")] if with_scenarios else [])
+    cfg["measurements"] = {"device_emulation":{"enabled":False}}
     root = tmp_path / "run"
     manifest = capture.capture_site(cfg, root)
     assert manifest["errors"] == []
@@ -209,6 +210,13 @@ def test_full_capture_with_design_and_interactions(browser, tmp_path, monkeypatc
     for entry in manifest["design_reports"]:
         report = json.loads((root / entry["path"]).read_text())
         assert isinstance(report["interactions"]["hover"], list)
+        assert report["schema_version"] == 2
+        assert "advanced" in report["summary"]
+        if entry["viewport"] == "desktop":
+            assert entry["probe_count"] == 5
+            assert report["responsive_probes"]["status"] == "observed"
+        else:
+            assert report["responsive_probes"]["status"] == "skipped"
     if with_scenarios:
         states = manifest["interaction_states"]
         assert len(states) == 2

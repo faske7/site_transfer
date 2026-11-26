@@ -251,6 +251,20 @@
       "properties": {
         "enabled": {
           "type": "boolean"
+        },
+        "device_emulation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "max_routes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            }
+          }
         }
       }
     },

@@ -37,4 +37,4 @@
 - Evidence quality metrics: planned vs captured route/state coverage, verified hash rate, visual diff by state/viewport, repeated capture count, token/time benchmark. Baseline before claiming improvements.
 - Maintain mandatory CONTEXT.md and AGENTS.md in every target; no unauthorized copying or destructive browser actions.
 
-PR-10 accepted and merged. PR-11 deferred by user; backup/restore remains an unmet release gate. PR-12 security/build baseline is next, followed by PR-13 interaction coverage. Avoid marketing v1.0 or claiming measured token savings before gates pass.
+PR-10 accepted and merged. PR-11 deferred by user; backup/restore remains an unmet release gate. PR-12 merged; PR-13 merged with accepted integration hotfix #14. Logical PR-14 Advanced Design Intelligence is next. Avoid marketing v1.0 or claiming measured token savings before gates pass.

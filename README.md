@@ -46,3 +46,5 @@ PR-10 adds durable lifecycle recovery and worker readiness. See [upgrade and rec
 PR-11 full Backup & Restore deferred by user. PR-12 adds a security/build baseline; see [hardening and acceptance](docs/HARDENING.md). Full backup/restore remains a release gate.
 
 PR-13 adds opt-in isolated hover/focus/click/scroll state evidence, separate viewport screenshots, gallery and Reference Kit export. See [interaction capture](docs/INTERACTIONS.md).
+
+PR-14 Advanced Design Intelligence adds design report v2, normalized sampled CSS, semantic metadata and bounded responsive width probes. See [design evidence](docs/DESIGN.md).
