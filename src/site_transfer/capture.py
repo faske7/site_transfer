@@ -18,6 +18,8 @@ from .assets import inventory, combine
 from .pipeline import CaptureCancelled
 from .reliable_capture import capture_png, QualityFailure
 from .cookie_consent import handle_cookie_consent, consent_unresolved, consent_quality
+from .scroll_timeline import capture_timeline, LIMITATIONS as TIMELINE_LIMITATIONS
+from urllib.parse import urlsplit
 
 DEFAULT_VIEWPORTS = [
     {"name": "desktop", "width": 1440, "height": 900},
@@ -58,6 +60,12 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
     timeout = min(config.get("browser", {}).get("timeout_ms", 30000), 30000)
     consent_config = config.get("browser", {}).get("cookie_consent", {})
 
+    timeline_options=config.get("scroll_timeline",{})
+    timeline_enabled=timeline_options.get("enabled",False)
+    timeline_entries=[]
+    timeline_profiles={p["viewport"]:p for p in timeline_options.get("profiles",[])} if timeline_enabled else {}
+    timeline_routes=set(timeline_options.get("routes",["/"])) if timeline_enabled else set()
+
     def record():
         data = {"routes": list(routes), "artifacts": list(artifacts), "errors": list(errors),
                 "completed": done, "total": len(routes) * len(views),
@@ -86,6 +94,12 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
             data["device_sha256"] = hashlib.sha256((root / "device-manifest.json").read_bytes()).hexdigest()
             data["device_captures"] = [registry_entry(entry) for entry in device_entries]
             data["device_route_limit"] = device_route_limit
+        if timeline_enabled:
+            report={"schema_version":1,"sequences":timeline_entries,"limitations":TIMELINE_LIMITATIONS}
+            write_json(root / "scroll-timeline-manifest.json",report)
+            data["scroll_timeline_manifest"]="scroll-timeline-manifest.json"
+            data["scroll_timeline_sha256"]=hashlib.sha256((root / "scroll-timeline-manifest.json").read_bytes()).hexdigest()
+            data["scroll_timeline"]=list(timeline_entries)
         write_json(root / "routes.json", routes)
         write_json(root / "capture-manifest.json", data)
         progress(data)
@@ -192,6 +206,20 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     context.close()
                 done += 1
                 record()
+                if viewport["name"] in timeline_profiles and (urlsplit(url).path or "/") in timeline_routes:
+                    slot=len(timeline_entries)
+                    timeline_entries.append({"url":url,"viewport":viewport["name"],"status":"not_attempted","frames":[]})
+                    record()
+                    def timeline_checkpoint(entry):
+                        timeline_entries[slot]=entry
+                        record()
+                    result=capture_timeline(browser,viewport,expected,root,url,timeline_options,
+                                            timeline_profiles[viewport["name"]],consent_config,cancelled,timeline_checkpoint)
+                    timeline_entries[slot]=result
+                    if result["status"]!="captured":
+                        errors.append({"url":url,"viewport":viewport["name"],"stage":"scroll_timeline",
+                                       "code":result["stop_reason"],"error":"Scroll timeline incomplete"})
+                    record()
                 for state_index, state in enumerate(scenario_states):
                     if state["url"] != url or state["viewport"] != viewport["name"]:
                         continue

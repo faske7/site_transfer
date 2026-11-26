@@ -79,6 +79,23 @@ def validate_config(config: object) -> dict:
                 raise ConfigError("Interaction scenario route must be an explicit seed within the capture limit")
             if not set(scenario.get("viewports", allowed_views)).issubset(allowed_views):
                 raise ConfigError("Interaction scenario references an unknown viewport")
+    timeline = config.get("scroll_timeline", {})
+    if timeline.get("enabled", False):
+        from .discovery import seed_routes
+        allowed_views = set(names or ["desktop", "mobile"])
+        profiles = [p["viewport"] for p in timeline["profiles"]]
+        if len(profiles) != len(set(profiles)) or not set(profiles).issubset(allowed_views):
+            raise ConfigError("Timeline profiles must reference unique known viewports")
+        try:
+            routes, _ = seed_routes(config)
+        except ValueError as exc:
+            raise ConfigError("Timeline requires default HTTP(S) ports") from exc
+        if not set(timeline.get("routes", ["/"])).issubset({urlsplit(url).path or "/" for url in routes}):
+            raise ConfigError("Timeline routes must be explicit seeds within the capture limit")
+        if len(profiles) * len(timeline.get("routes", ["/"])) > 2:
+            raise ConfigError("Timeline supports at most two route/viewport sequences per run")
+        if timeline.get("max_frames",150) <= timeline.get("stable_steps",5):
+            raise ConfigError("Timeline frame budget must exceed stable steps")
     if config.get("documentation", {}).get("language", "en") != "en":
         raise ConfigError("PR-01 documentation supports only English")
     return config

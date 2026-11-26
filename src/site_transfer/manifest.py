@@ -110,6 +110,43 @@ def device_files(manifest):
     return result
 
 
+def timeline_files(manifest):
+    import re
+    from .scroll_timeline import sequence_prefix
+    entries=manifest.get("scroll_timeline",[])
+    if not entries and not manifest.get("scroll_timeline_manifest"):
+        return {}
+    checksum=manifest.get("scroll_timeline_sha256","")
+    if manifest.get("scroll_timeline_manifest")!="scroll-timeline-manifest.json" or not re.fullmatch(r"[a-f0-9]{64}",checksum):
+        raise ValueError("Invalid timeline manifest")
+    files={"scroll-timeline-manifest.json":checksum}
+    seen=set()
+    for sequence in entries:
+        view,url=sequence["viewport"],sequence["url"]
+        if not re.fullmatch(r"[A-Za-z0-9_-]+",view) or (view,url) in seen:
+            raise ValueError("Invalid timeline identity")
+        seen.add((view,url))
+        if sequence["status"] not in ("captured","partial","failed","not_attempted"):
+            raise ValueError("Invalid timeline status")
+        frames=sequence["frames"]
+        if len(frames)>150 or (sequence["status"] in ("failed","not_attempted") and frames):
+            raise ValueError("Invalid timeline coverage")
+        prefix=sequence_prefix(url,view).as_posix()
+        for index,frame in enumerate(frames):
+            if frame["index"]!=index or frame["quality"]["status"] not in ("valid","warning"):
+                raise ValueError("Invalid timeline frame")
+            kinds=[("screenshot",f"frame-{index:03d}.png")]
+            if index:
+                kinds.append(("difference_map",f"diff-{index:03d}.png"))
+            for kind,filename in kinds:
+                item=frame[kind]
+                expected=f"{prefix}/{filename}"
+                if item["path"]!=expected or not re.fullmatch(r"[a-f0-9]{64}",item["sha256"]):
+                    raise ValueError("Invalid timeline file")
+                files[expected]=item["sha256"]
+    return files
+
+
 def selected_files(manifest):
     files = {"routes.json": None, "capture-manifest.json": None}
     for item in manifest.get("artifacts", []):
@@ -131,6 +168,7 @@ def selected_files(manifest):
             files[name] = None
     files.update(interaction_files(manifest))
     files.update(device_files(manifest))
+    files.update(timeline_files(manifest))
     return files
 
 
@@ -164,6 +202,10 @@ def build_kit(config, job, root, output):
         report=json.loads(evidence_file(root,"device-manifest.json").read_text())
         if [registry_entry(entry) for entry in report.get("devices",[])]!=manifest.get("device_captures"):
             raise ValueError("Device manifest differs from registry")
+    if manifest.get("scroll_timeline_manifest"):
+        report=json.loads(evidence_file(root,"scroll-timeline-manifest.json").read_text())
+        if report.get("sequences")!=manifest.get("scroll_timeline"):
+            raise ValueError("Timeline manifest differs from registry")
     with TemporaryDirectory() as directory:
         docs = initialize_project(config, Path(directory))
         task = docs / "TASK.md"
@@ -177,7 +219,8 @@ def build_kit(config, job, root, output):
             "1. design/reference/capture-manifest.json and routes.json.\n"
             "2. Matching desktop/mobile screenshots. Check quality warnings and missing attempts; legacy records have unknown quality.\n"
             "3. design-tokens.json and per-viewport design reports if present. V2 includes normalized sampled CSS, layout/semantic metadata and width-only responsive probes; distinguish observed values from declared timing and missing evidence.\n"
-            "4. asset-manifest.json if present: inventory only, no license granted.\n\n"
+            "4. asset-manifest.json if present: inventory only, no license granted.\n"
+            "5. scroll-timeline-manifest.json if present: ordered viewport frames, pixel difference maps, scroll positions and sampled motion. Use these for scroll-driven behavior; ordinary scrolling also changes pixels. Inspect stop_reason, truncation and consent status.\n\n"
             "## Acceptance\nImplement bounded routes and responsive layouts; compare against matching screenshots, "
             "test behavior, document missing states, and update CONTEXT.md. Do not invent measurements or backend behavior. "
             "Use only authorized assets; no credentials or automatic publication. Review changes before pushing.\n",

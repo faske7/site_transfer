@@ -21,3 +21,5 @@ Cookie consent preflight added after user observed a blocking banner in RE/MAX a
 Consent production run stopped after widespread navigation_changed. Handler now distinguishes a single verified exact-URL GET reload after click from rejected navigation; no second click, no route or proxy policy change. See COOKIE_CONSENT.md. User previously verified 175 backend passes and 5 frontend passes, but new reload cases pending.
 
 Confirmed RE/MAX diagnosis after d53a85c: exact-URL History API event before any click, custom fixed banner without known root selector. CDP guard and bounded structural fallback added, no route/network policy change; real dismissal and new tests pending.
+
+User-approved opt-in timeline records animation-preserving viewport frames separately from static baselines. See SCROLL_TIMELINE.md for bounds and evidence limitations. Integrated implementation acceptance pending.
