@@ -19,3 +19,5 @@ Follow-up regression (user log on 71d8320): 54 passed, 1 failed (test_device_del
 Cookie consent preflight added after user observed a blocking banner in RE/MAX after Docker rebuild. Opt-in, before capture and offline state gate; unresolved banners add warnings/errors. See COOKIE_CONSENT.md. User logs on 4ad8b91: 3 targeted passed, 57 capture regression passed, 155 passed/11 skipped/1 pre-existing Starlette warning full regression; rebuilt Docker, production consent gap remains open. New implementation not yet tested.
 
 Consent production run stopped after widespread navigation_changed. Handler now distinguishes a single verified exact-URL GET reload after click from rejected navigation; no second click, no route or proxy policy change. See COOKIE_CONSENT.md. User previously verified 175 backend passes and 5 frontend passes, but new reload cases pending.
+
+Confirmed RE/MAX diagnosis after d53a85c: exact-URL History API event before any click, custom fixed banner without known root selector. CDP guard and bounded structural fallback added, no route/network policy change; real dismissal and new tests pending.

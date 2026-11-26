@@ -38,7 +38,7 @@ Automatic detection uses bounded known container selectors and exact normalized
 button labels in English, Czech, German, French and Russian, plus selected
 OneTrust/Cookiebot IDs. Other supported container candidates include CookieYes,
 Usercentrics and consentmanager; vendor versions are not certified. Ambiguous
-roots/buttons are not clicked. Open Shadow DOM via Playwright CSS locators and
+roots/buttons are not clicked. A structural fallback recognizes ordinary DOM fixed/sticky containers or dialogs with visible cookie-related text and both exact accept and reject/necessary controls. It includes the Czech label Souhlasím se všemi. It does not match arbitrary overlays or generic confirmation buttons; the pinned root must also disappear after the click. Open Shadow DOM via Playwright CSS locators and
 same-origin frames (up to five total) are best effort; closed shadow roots and
 cross-origin frame controls are unsupported. Only consent-marked visible roots,
 safe button controls outside forms/links, at most one real click per context.
@@ -56,7 +56,7 @@ Evidence statuses: disabled, not_detected (no recognized root; not proof of
 absence), dismissed (recognized root no longer visible on two polls; not
 proof of stored consent), unresolved, failed. Unresolved/failed are manifest
 errors and screenshot warnings where evidence exists, so partial runs are
-honest. Navigation/popup during handling fails the affected capture, except one observed successful non-redirected GET document reload of the exact original URL after the consent click. The reload must commit and return a successful document response before banner disappearance can be verified. URL changes (including hash/query), pre-click navigation, redirects, repeated reloads and popups remain rejected. No second click; original timeout remains. Sanitized navigation counts/reason/phase are recorded. Banner absence must persist for at least 600ms; later changes are still possible. Metadata
+honest. Navigation/popup during handling fails the affected capture, except one observed successful non-redirected GET document reload of the exact original URL after the consent click. The reload must commit and return a successful document response before banner disappearance can be verified. Chromium CDP distinguishes document commits from same-document events. Exact-URL historyApi events are permitted during hydration or consent; other same-document event types and URL changes (including hash/query), pre-click document navigation, redirects, repeated reloads and popups remain rejected. If CDP observation is unavailable the preflight does not click. No second click; original timeout remains. Sanitized navigation counts/reason/phase are recorded. Banner absence must persist for at least 600ms; later changes are still possible. Metadata
 in capture_quality/artifacts, device and interaction entries, GUI and ZIP.
 Legacy manifests remain readable. No migration.
 
@@ -71,3 +71,5 @@ Fixture verification: synthetic multilingual HTML must declare UTF-8 both in the
 After UTF-8 correction, targeted user run on 5fd5dc7: three Czech control tests passed, pipeline interaction still failed. The original test document had no visible content at scroll 600; split into positive colored content and negative blank viewport cases, requiring white PNG rejection and exclusion from partial ZIP. This tests rather than weakens the screenshot quality gate. Rerun pending.
 
 Production follow-up: user stopped RE/MAX consent-enabled capture after widespread navigation_changed failures. Old metadata does not distinguish same-URL reload from other navigation; actual cause not yet proven. Added exact-URL reload support and six browser cases plus one full pipeline case. Retest pending.
+
+Production diagnosis after d53a85c: user confirmed 27 cookie tests and 182 full backend passes (11 skips, 1 warning). RE/MAX run 701cc6eb-f9d0-4b34-b34e-29ee2cc4473a failed before click with one main frame event and zero document requests. Read-only Chromium CDP observation confirmed exact-URL historyApi event. Actual controls: Odmítnout vše and Souhlasím se všemi inside unnamed fixed Tailwind container. Structural fallback and CDP guard added; cookie-related root text assumed by fallback but not supplied in diagnostic. Twelve added test cases including custom SPA pipeline. Retest pending; no live dismissal yet verified.

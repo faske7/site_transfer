@@ -135,9 +135,9 @@ def test_invalid_config(changes):
         validate_config(config)
 
 
-@pytest.mark.parametrize("with_scroll_content,reload",[(True,False),(False,False),(True,True)],
-                         ids=["visible-content","blank-viewport","same-url-reload"])
-def test_capture_pipeline_consent(browser,tmp_path,monkeypatch,with_scroll_content,reload):
+@pytest.mark.parametrize("with_scroll_content,reload,custom",[(True,False,False),(False,False,False),(True,True,False),(True,False,True)],
+                         ids=["visible-content","blank-viewport","same-url-reload","custom-spa-banner"])
+def test_capture_pipeline_consent(browser,tmp_path,monkeypatch,with_scroll_content,reload,custom):
     from site_transfer import capture, device_capture, interaction_capture
     from site_transfer.browser import context_for as real_context
     from site_transfer.manifest import build_kit
@@ -149,6 +149,13 @@ def test_capture_pipeline_consent(browser,tmp_path,monkeypatch,with_scroll_conte
     # A successful state must contain real visible reference content.
     html=HTML.replace('<h1>Reference content</h1>',
         '<h1>Reference content</h1><section style="position:absolute;top:650px;left:0;right:0;height:700px;background:#174ea6;color:white"><h2>Scrolled reference content</h2></section>') if with_scroll_content else HTML
+
+    if custom:
+        import json
+        custom_body=CUSTOM_HTML.split('<h1>Reference</h1>',1)[1]
+        html=html.split('<div id="cookie-banner">',1)[0]
+        html+='<script>setTimeout(()=>history.replaceState({ready:true},"",location.href),250);'
+        html+=f'setTimeout(()=>document.body.insertAdjacentHTML("beforeend",{json.dumps(custom_body)}),500);</script>'
 
     if reload:
         html=html.replace("window.choice='reject';this.parentElement.remove()",
@@ -172,7 +179,7 @@ def test_capture_pipeline_consent(browser,tmp_path,monkeypatch,with_scroll_conte
     real_devices=capture.planned_devices
     monkeypatch.setattr(capture,"planned_devices",lambda url:real_devices(url)[:1])
     cfg={"source":{"url":URL,"pages":["/"]},"target":{"project_name":"demo"},
-         "browser":{"cookie_consent":dict(OPTIONS,timeout_ms=4000) if reload else OPTIONS},
+         "browser":{"cookie_consent":dict(OPTIONS,timeout_ms=4000) if reload or custom else OPTIONS},
          "viewports":[{"name":"mobile","width":390,"height":844}],
          "discovery":{"enabled":False,"max_pages":1},
          "interactions":{"enabled":True,"scenarios":[{"id":"scroll","route":"/","action":"scroll","scroll_y":600}]},
@@ -185,6 +192,8 @@ def test_capture_pipeline_consent(browser,tmp_path,monkeypatch,with_scroll_conte
         assert manifest[key][0]["cookie_consent"]["status"]=="dismissed",diagnostic
         if reload:
             assert manifest[key][0]["cookie_consent"]["code"]=="banner_hidden_after_reload",diagnostic
+        if custom:
+            assert manifest[key][0]["cookie_consent"]["navigation"]["same_url_history_events"]>=1,diagnostic
     state=manifest["interaction_states"][0]
     assert state["after"]["scroll_y"]==600,diagnostic
     expected_path="interactions/mobile/scroll.png"
@@ -270,3 +279,80 @@ def test_popup_rejected(page):
     assert result["status"]=="failed",result
     assert result["code"]=="navigation_changed"
     assert result["navigation"]["reason"]=="popup"
+
+
+CUSTOM_HTML="""<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<h1>Reference</h1>
+<div class="fixed bottom-0" style="position:fixed;bottom:0;left:0;right:0;background:white">
+  <div class="container"><p>Na tomto webu používáme soubory cookies.</p>
+    <div class="actions">
+      <button onclick="window.choice='reject';this.closest('.fixed').remove()">Odmítnout vše</button>
+      <button onclick="window.choice='accept';this.closest('.fixed').remove()">Souhlasím se všemi</button>
+    </div>
+  </div>
+</div>"""
+
+
+@pytest.mark.parametrize("strategy,choice",[("accept_all","accept"),("reject_optional","reject")])
+def test_custom_czech_banner(page,strategy,choice):
+    load(page,CUSTOM_HTML)
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,strategy=strategy,timeout_ms=4000))
+    assert result["status"]=="dismissed",result
+    assert page.evaluate("window.choice")==choice
+    assert not page.locator(".fixed").count()
+
+
+@pytest.mark.parametrize("method",["replaceState","pushState"])
+def test_exact_url_history_during_hydration(page,method):
+    # No candidate until after the same-document event, as observed on RE/MAX.
+    import json
+    body=CUSTOM_HTML.split('<h1>Reference</h1>',1)[1]
+    load(page,'<meta charset="utf-8"><h1>Reference</h1><script>'
+         f'setTimeout(()=>history.{method}({{ready:true}},"",location.href),250);'
+         f'setTimeout(()=>document.body.insertAdjacentHTML("beforeend",{json.dumps(body)}),500);'
+         '</script>')
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,strategy="accept_all",timeout_ms=4000))
+    assert result["status"]=="dismissed",result
+    assert result["navigation"]["same_url_history_events"]>=1
+    assert result["navigation"]["document_requests"]==0
+    assert result["navigation"]["document_commits"]==0
+    assert page.evaluate("window.choice")=="accept"
+
+
+@pytest.mark.parametrize("destination",["/other","/?changed=1","/#changed"])
+def test_history_route_change_rejected(page,destination):
+    import json
+    load(page,f'<h1>Reference</h1><script>setTimeout(()=>history.replaceState({{}},"",{json.dumps(destination)}),250)</script>')
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,timeout_ms=3000))
+    assert result["status"]=="failed",result
+    assert result["code"]=="navigation_changed"
+    assert not result["clicked"]
+
+
+def test_custom_overlay_without_cookie_context(page):
+    load(page,CUSTOM_HTML.replace("Na tomto webu používáme soubory cookies.","Review the proposed changes."))
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,strategy="accept_all"))
+    assert result["status"]=="not_detected",result
+    assert not result["clicked"]
+
+
+def test_custom_static_controls_not_clicked(page):
+    load(page,CUSTOM_HTML.replace("position:fixed","position:static"))
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,strategy="accept_all"))
+    assert result["status"]=="not_detected",result
+    assert not result["clicked"]
+
+
+def test_custom_root_remaining_after_controls_removed(page):
+    load(page,CUSTOM_HTML.replace("this.closest('.fixed').remove()","this.closest('.actions').remove()"))
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,strategy="accept_all",timeout_ms=3000))
+    assert result["status"]=="unresolved",result
+    assert page.locator(".fixed").is_visible()
+
+
+def test_custom_banner_requires_opposing_choice(page):
+    load(page,CUSTOM_HTML.replace("Odmítnout vše","Settings"))
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,strategy="accept_all"))
+    assert result["status"]=="not_detected",result
+    assert not result["clicked"]
