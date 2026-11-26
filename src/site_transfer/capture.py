@@ -9,6 +9,7 @@ from .discovery import normalize, seed_routes
 from .measurements import measure
 from .design_tokens import summarize, aggregate
 from .design_report import build_report
+from .device_capture import planned_devices, capture_device, registry_entry, LIMITATIONS as DEVICE_LIMITATIONS
 from .responsive_probes import probe_widths, MAX_ROUTES, LIMITATIONS as PROBE_LIMITATIONS
 from .interactions import inspect_interactions
 from .interaction_capture import planned_states, capture_state, LIMITATIONS
@@ -45,6 +46,10 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
     assets_enabled = config.get('assets', {}).get('enabled', True)
     measurements = config.get('measurements', {}).get('enabled', True)
     interactions = config.get('interactions', {}).get('enabled', True)
+    device_config = config.get("measurements", {}).get("device_emulation", {})
+    device_enabled = measurements and device_config.get("enabled", True)
+    device_route_limit = device_config.get("max_routes", 3)
+    device_entries = []
     scenario_states = planned_states(config, routes, views) if interactions else []
     done = 0
     timeout = min(config.get("browser", {}).get("timeout_ms", 30000), 30000)
@@ -67,6 +72,15 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
             data["interaction_manifest"] = "interaction-manifest.json"
             data["interaction_sha256"] = hashlib.sha256((root / "interaction-manifest.json").read_bytes()).hexdigest()
             data["interaction_states"] = list(scenario_states)
+        if device_enabled:
+            device_report = {"schema_version":1,"route_limit":device_route_limit,
+                             "excluded_routes":list(routes[device_route_limit:]),
+                             "devices":list(device_entries),"limitations":DEVICE_LIMITATIONS}
+            write_json(root / "device-manifest.json", device_report)
+            data["device_manifest"] = "device-manifest.json"
+            data["device_sha256"] = hashlib.sha256((root / "device-manifest.json").read_bytes()).hexdigest()
+            data["device_captures"] = [registry_entry(entry) for entry in device_entries]
+            data["device_route_limit"] = device_route_limit
         write_json(root / "routes.json", routes)
         write_json(root / "capture-manifest.json", data)
         progress(data)
@@ -178,6 +192,20 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     if result["status"] != "captured":
                         errors.append({"url": url, "viewport": viewport["name"], "stage": "interaction",
                                        "state_id": state["id"], "error": result["reason"]})
+                    record()
+            if device_enabled and index < device_route_limit:
+                start = len(device_entries)
+                device_entries.extend(planned_devices(url))
+                record()
+                for device_index in range(start,len(device_entries)):
+                    device = device_entries[device_index]
+                    if cancelled():
+                        raise CaptureCancelled("Capture cancelled at device boundary")
+                    result = capture_device(browser, expected, root, device, cancelled)
+                    device_entries[device_index] = result
+                    if result["status"] != "captured":
+                        errors.append({"url":url,"viewport":device["id"],"stage":"device",
+                                       "error":result["reason"]})
                     record()
             index += 1
     return record()

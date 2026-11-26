@@ -59,6 +59,18 @@ export default function CapturePanel({projectId}:{projectId:string}) {
         const src="/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/screenshots/"+i;
         return <figure key={a.path}><a href={src} target="_blank" rel="noreferrer"><img loading="lazy" src={src} alt={a.viewport+" screenshot of "+a.url}/></a><figcaption>{a.viewport} · {a.width} × {a.height}<small>{a.url}</small></figcaption></figure>;
       })}</div>
+      <h3>Device emulation</h3>
+      {job.manifest.device_manifest ? <>
+        <p>{(job.manifest.device_captures??[]).filter(d=>d.status==="captured").length}/{(job.manifest.device_captures??[]).length} profile captures · first {job.manifest.device_route_limit} routes · Chromium emulation</p>
+        <a className="secondary" href={"/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/devices"} target="_blank" rel="noreferrer">Device manifest (JSON)</a>
+        <div className="capture-grid">{(job.manifest.device_captures??[]).map((d,i)=>{
+          const src="/api/v1/projects/"+encodeURIComponent(projectId)+"/captures/"+encodeURIComponent(job.id)+"/devices/"+i;
+          return <figure key={d.id+"-"+d.url}>
+            {d.status==="captured"&&<a href={src} target="_blank" rel="noreferrer"><img loading="lazy" src={src} alt={d.label+" "+d.url}/></a>}
+            <figcaption><strong>{d.label}</strong> · {d.width} × {d.height} · DPR {d.dpr} · {d.status}<small>{d.url}</small><small>{d.screenshot_mode??d.reason}</small></figcaption>
+          </figure>;
+        })}</div>
+      </> : <p className="muted">No device profile evidence for this run.</p>}
       <h3>Interaction states</h3>
       {job.manifest.interaction_manifest ? <>
         <p>{(job.manifest.interaction_states??[]).filter(s=>s.status==="captured").length}/{(job.manifest.interaction_states??[]).length} states captured · separate viewport screenshots</p>

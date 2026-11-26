@@ -74,6 +74,11 @@ def test_known_browser_design():
                 main=next(t for t in result["targets"] if t["selector"].endswith("main:nth-of-type(1)"))
                 assert main["gap"]==("8px" if result["requested_width"]<=768 else "24px")
                 assert result["media_queries"][0]["matches"]==(result["requested_width"]<=768)
+            boundary=probes["declared_breakpoints"][0]
+            assert boundary["width"]==768
+            assert [r["requested_width"] for r in boundary["samples"]]==[767,768,769]
+            assert [r["media_queries"][0]["matches"] for r in boundary["samples"]]==[True,True,False]
+            assert any("gap" in row["changed_properties"] for row in boundary["changed_targets"])
             report=build_report("https://example.com/","desktop","screenshots/desktop/test.png",snapshot,summary,None,probes)
             assert json.loads(json.dumps(report))==report
         finally:

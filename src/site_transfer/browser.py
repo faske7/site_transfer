@@ -166,12 +166,15 @@ def chromium():
         thread.join(timeout=2)
 
 
-def context_for(browser, viewport, source_origin, network_gate=None):
-    context = browser.new_context(
-        viewport={"width": viewport["width"], "height": viewport["height"]},
-        device_scale_factor=1, is_mobile=viewport["width"] < 600,
-        has_touch=viewport["width"] < 600, service_workers="block", accept_downloads=False,
-    )
+def context_for(browser, viewport, source_origin, network_gate=None, device_options=None):
+    options = dict(viewport={"width": viewport["width"], "height": viewport["height"]},
+                   device_scale_factor=1, is_mobile=viewport["width"] < 600,
+                   has_touch=viewport["width"] < 600)
+    if device_options is not None:
+        options.update(device_options)
+    # Apply security options last; device profiles cannot override them.
+    options.update(service_workers="block", accept_downloads=False)
+    context = browser.new_context(**options)
     def guard(route):
         if network_gate is not None and network_gate.get('closed'):
             network_gate['blocked'] = network_gate.get('blocked', 0) + 1

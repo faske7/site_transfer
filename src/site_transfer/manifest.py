@@ -72,6 +72,40 @@ def interaction_files(manifest):
     return files
 
 
+def device_files(manifest):
+    import re
+    from .device_capture import profiles
+    entries=manifest.get("device_captures",[])
+    if not entries and not manifest.get("device_manifest"):
+        return {}
+    if manifest.get("device_manifest")!="device-manifest.json":
+        raise ValueError("Invalid device manifest")
+    checksum=manifest.get("device_sha256","")
+    if not re.fullmatch(r"[a-f0-9]{64}",checksum):
+        raise ValueError("Invalid device manifest hash")
+    valid_ids={p["id"] for p in profiles()}
+    result={"device-manifest.json":checksum}
+    seen=set()
+    for entry in entries:
+        identity=(entry["id"],entry["url"])
+        if entry["id"] not in valid_ids or identity in seen:
+            raise ValueError("Invalid or duplicate device identity")
+        seen.add(identity)
+        if entry["status"] not in ("captured","failed","not_attempted"):
+            raise ValueError("Invalid device status")
+        if entry["status"]!="captured":
+            if "path" in entry or "sha256" in entry:
+                raise ValueError("Uncaptured device references image")
+            continue
+        slug=hashlib.sha256(entry["url"].encode()).hexdigest()[:16]
+        name=f"devices/{entry['id']}/{slug}.png"
+        checksum=entry.get("sha256","")
+        if entry.get("path")!=name or not re.fullmatch(r"[a-f0-9]{64}",checksum):
+            raise ValueError("Invalid device screenshot")
+        result[name]=checksum
+    return result
+
+
 def selected_files(manifest):
     files = {"routes.json": None, "capture-manifest.json": None}
     for item in manifest.get("artifacts", []):
@@ -90,6 +124,7 @@ def selected_files(manifest):
                 raise ValueError("Invalid manifest reference")
             files[name] = None
     files.update(interaction_files(manifest))
+    files.update(device_files(manifest))
     return files
 
 
@@ -118,6 +153,11 @@ def build_kit(config, job, root, output):
         report=json.loads(evidence_file(root,"interaction-manifest.json").read_text())
         if report.get("states")!=manifest.get("interaction_states"):
             raise ValueError("Interaction manifest differs from registry")
+    if manifest.get("device_manifest"):
+        from .device_capture import registry_entry
+        report=json.loads(evidence_file(root,"device-manifest.json").read_text())
+        if [registry_entry(entry) for entry in report.get("devices",[])]!=manifest.get("device_captures"):
+            raise ValueError("Device manifest differs from registry")
     with TemporaryDirectory() as directory:
         docs = initialize_project(config, Path(directory))
         task = docs / "TASK.md"

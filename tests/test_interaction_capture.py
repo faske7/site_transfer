@@ -200,6 +200,7 @@ def test_full_capture_with_design_and_interactions(browser, tmp_path, monkeypatc
     monkeypatch.setattr(capture, "context_for", fixture_context)
     monkeypatch.setattr(interaction_capture, "context_for", fixture_context)
     cfg = config([scenario(expect_visible="#panel")] if with_scenarios else [])
+    cfg["measurements"] = {"device_emulation":{"enabled":False}}
     root = tmp_path / "run"
     manifest = capture.capture_site(cfg, root)
     assert manifest["errors"] == []
