@@ -56,7 +56,7 @@ Evidence statuses: disabled, not_detected (no recognized root; not proof of
 absence), dismissed (recognized root no longer visible on two polls; not
 proof of stored consent), unresolved, failed. Unresolved/failed are manifest
 errors and screenshot warnings where evidence exists, so partial runs are
-honest. Navigation/popup during handling fails the affected capture. Metadata
+honest. Navigation/popup during handling fails the affected capture, except one observed successful non-redirected GET document reload of the exact original URL after the consent click. The reload must commit and return a successful document response before banner disappearance can be verified. URL changes (including hash/query), pre-click navigation, redirects, repeated reloads and popups remain rejected. No second click; original timeout remains. Sanitized navigation counts/reason/phase are recorded. Banner absence must persist for at least 600ms; later changes are still possible. Metadata
 in capture_quality/artifacts, device and interaction entries, GUI and ZIP.
 Legacy manifests remain readable. No migration.
 
@@ -69,3 +69,5 @@ feature for terms, login, payments or other non-cookie consent.
 Fixture verification: synthetic multilingual HTML must declare UTF-8 both in the document and routed HTTP content type. On 8b32449, user regression returned 15 passed and 4 failures involving Czech controls. The fixture lacked both declarations; corrected fixture now asserts decoded Czech labels before testing the handler. Rerun pending, not a production validation.
 
 After UTF-8 correction, targeted user run on 5fd5dc7: three Czech control tests passed, pipeline interaction still failed. The original test document had no visible content at scroll 600; split into positive colored content and negative blank viewport cases, requiring white PNG rejection and exclusion from partial ZIP. This tests rather than weakens the screenshot quality gate. Rerun pending.
+
+Production follow-up: user stopped RE/MAX consent-enabled capture after widespread navigation_changed failures. Old metadata does not distinguish same-URL reload from other navigation; actual cause not yet proven. Added exact-URL reload support and six browser cases plus one full pipeline case. Retest pending.

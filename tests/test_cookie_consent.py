@@ -135,8 +135,9 @@ def test_invalid_config(changes):
         validate_config(config)
 
 
-@pytest.mark.parametrize("with_scroll_content",[True,False],ids=["visible-content","blank-viewport"])
-def test_capture_pipeline_consent(browser,tmp_path,monkeypatch,with_scroll_content):
+@pytest.mark.parametrize("with_scroll_content,reload",[(True,False),(False,False),(True,True)],
+                         ids=["visible-content","blank-viewport","same-url-reload"])
+def test_capture_pipeline_consent(browser,tmp_path,monkeypatch,with_scroll_content,reload):
     from site_transfer import capture, device_capture, interaction_capture
     from site_transfer.browser import context_for as real_context
     from site_transfer.manifest import build_kit
@@ -148,6 +149,11 @@ def test_capture_pipeline_consent(browser,tmp_path,monkeypatch,with_scroll_conte
     # A successful state must contain real visible reference content.
     html=HTML.replace('<h1>Reference content</h1>',
         '<h1>Reference content</h1><section style="position:absolute;top:650px;left:0;right:0;height:700px;background:#174ea6;color:white"><h2>Scrolled reference content</h2></section>') if with_scroll_content else HTML
+
+    if reload:
+        html=html.replace("window.choice='reject';this.parentElement.remove()",
+                          "sessionStorage.setItem('consent','yes');location.reload()")
+        html+="<script>if(sessionStorage.getItem('consent'))document.querySelector('#cookie-banner').remove()</script>"
 
     def context(browser,viewport,expected,network_gate=None,device_options=None):
         ctx=real_context(browser,viewport,expected,network_gate,device_options)
@@ -166,7 +172,7 @@ def test_capture_pipeline_consent(browser,tmp_path,monkeypatch,with_scroll_conte
     real_devices=capture.planned_devices
     monkeypatch.setattr(capture,"planned_devices",lambda url:real_devices(url)[:1])
     cfg={"source":{"url":URL,"pages":["/"]},"target":{"project_name":"demo"},
-         "browser":{"cookie_consent":OPTIONS},
+         "browser":{"cookie_consent":dict(OPTIONS,timeout_ms=4000) if reload else OPTIONS},
          "viewports":[{"name":"mobile","width":390,"height":844}],
          "discovery":{"enabled":False,"max_pages":1},
          "interactions":{"enabled":True,"scenarios":[{"id":"scroll","route":"/","action":"scroll","scroll_y":600}]},
@@ -177,6 +183,8 @@ def test_capture_pipeline_consent(browser,tmp_path,monkeypatch,with_scroll_conte
     for key in ("artifacts","capture_quality","device_captures","interaction_states"):
         assert len(manifest[key])==1,diagnostic
         assert manifest[key][0]["cookie_consent"]["status"]=="dismissed",diagnostic
+        if reload:
+            assert manifest[key][0]["cookie_consent"]["code"]=="banner_hidden_after_reload",diagnostic
     state=manifest["interaction_states"][0]
     assert state["after"]["scroll_y"]==600,diagnostic
     expected_path="interactions/mobile/scroll.png"
@@ -200,3 +208,65 @@ def test_capture_pipeline_consent(browser,tmp_path,monkeypatch,with_scroll_conte
         saved=json.loads(archive.read("design/reference/capture-manifest.json"))
         assert saved==manifest
         assert ("design/reference/"+expected_path in archive.namelist())==with_scroll_content
+
+
+def test_same_url_reload_after_consent(page):
+    html="""<meta charset="utf-8"><h1>Reference content</h1>
+    <div id="cookie-banner">Cookies<button onclick="sessionStorage.setItem('consent','yes');location.reload()">Reject all</button></div>
+    <script>if(sessionStorage.getItem('consent'))document.querySelector('#cookie-banner').remove()</script>"""
+    load(page,html)
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,timeout_ms=4000))
+    assert result["status"]=="dismissed",result
+    assert result["code"]=="banner_hidden_after_reload",result
+    assert result["navigation"]["same_url_reload"] is True
+    assert result["navigation"]["document_requests"]==1
+    assert page.url==URL
+    assert page.evaluate("sessionStorage.getItem('consent')")=="yes"
+
+
+def test_reload_without_dismissal(page):
+    load(page,'<div id="cookie-banner">Cookies<button onclick="location.reload()">Reject all</button></div>')
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,timeout_ms=3000))
+    assert result["status"]=="unresolved",result
+    assert result["code"]=="banner_still_visible"
+    assert result["navigation"]["same_url_reload"] is True
+    assert result["navigation"]["document_requests"]==1
+
+
+def test_navigation_to_other_route_rejected(page):
+    html='<div id="cookie-banner">Cookies<button onclick="location.href=\'/other\'">Reject all</button></div>'
+    page.route("**/*",lambda r:r.fulfill(status=200,content_type="text/html; charset=utf-8",
+               body=html if r.request.url==URL else "<h1>Other route</h1>"))
+    page.goto(URL)
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,timeout_ms=3000))
+    assert result["status"]=="failed",result
+    assert result["code"]=="navigation_changed"
+    assert result["navigation"]["same_url_reload"] is False
+
+
+def test_navigation_before_click_rejected(page):
+    load(page,"<h1>Reference</h1><script>setTimeout(()=>location.reload(),300)</script>")
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,timeout_ms=3000))
+    assert result["status"]=="failed",result
+    assert result["code"]=="navigation_changed"
+    assert result["clicked"] is False
+    assert result["navigation"]["phase"]=="before_click"
+
+
+def test_repeated_reload_rejected(page):
+    html="""<h1>Reference</h1>
+    <div id="cookie-banner">Cookies<button onclick="sessionStorage.setItem('consent','yes');location.reload()">Reject all</button></div>
+    <script>if(sessionStorage.getItem('consent'))setTimeout(()=>location.reload(),200)</script>"""
+    load(page,html)
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,timeout_ms=4000))
+    assert result["status"]=="failed",result
+    assert result["code"]=="navigation_changed"
+    assert result["navigation"]["reason"]=="repeated_navigation"
+
+
+def test_popup_rejected(page):
+    load(page,'<div id="cookie-banner">Cookies<button onclick="window.open(\'about:blank\');this.parentElement.remove()">Reject all</button></div>')
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,timeout_ms=3000))
+    assert result["status"]=="failed",result
+    assert result["code"]=="navigation_changed"
+    assert result["navigation"]["reason"]=="popup"

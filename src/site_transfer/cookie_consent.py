@@ -144,26 +144,71 @@ def handle_cookie_consent(page, expected, config=None, cancelled=lambda:False):
     deadline=start+config.get("timeout_ms",5000)/1000
     original_url=page.url
     navigation=[]
+    requests=[]
+    responses=[]
     popups=[]
     clicked=False
     detected=False
 
+    def on_request(request):
+        if request.is_navigation_request():
+            try:
+                main=request.frame==page.main_frame
+            except Exception:
+                return
+            if main:
+                requests.append(clicked and request.url==original_url and
+                                request.method=="GET" and request.redirected_from is None)
+
+    def on_response(response):
+        request=response.request
+        if request.is_navigation_request():
+            try:
+                main=request.frame==page.main_frame
+            except Exception:
+                return
+            if main:
+                responses.append(clicked and response.url==original_url and
+                                 (200<=response.status<300 or response.status==304))
+
     def on_navigation(frame):
         if frame==page.main_frame:
-            navigation.append(True)
+            navigation.append(clicked and frame.url==original_url)
 
     def on_popup(popup):
         popups.append(True)
         popup.close()
 
+    def navigation_reason():
+        if popups:
+            return "popup"
+        if page.url!=original_url:
+            return "url_changed"
+        if any(not item for item in requests+navigation+responses):
+            return "unexpected_navigation"
+        if max(len(requests),len(navigation),len(responses))>1:
+            return "repeated_navigation"
+        if navigation and not requests:
+            return "navigation_without_document_request"
+        return None
+
     def changed():
-        return bool(navigation or popups or page.url!=original_url)
+        return navigation_reason() is not None
 
     def result(status,code):
         return {"status":status,"code":code,"strategy":strategy,
                 "clicked":clicked,"detected":detected,
+                "navigation":{"document_requests":len(requests),
+                              "main_frame_events":len(navigation),
+                              "document_responses":len(responses),
+                              "same_url_reload":bool(requests and navigation and responses
+                                                     and not changed()),
+                              "reason":navigation_reason(),
+                              "phase":"after_click" if clicked else "before_click"},
                 "elapsed_ms":int((monotonic()-start)*1000)}
 
+    page.on("request",on_request)
+    page.on("response",on_response)
     page.on("framenavigated",on_navigation)
     page.on("popup",on_popup)
     try:
@@ -191,22 +236,50 @@ def handle_cookie_consent(page, expected, config=None, cancelled=lambda:False):
                     if handle is None or not handle.evaluate(CONTROL_JS):
                         return result("unresolved","control_changed")
                     clicked=True
-                    handle.click(timeout=max(1,min(1500,remaining_ms(deadline))))
+                    handle.click(timeout=max(1,min(1500,remaining_ms(deadline))),no_wait_after=True)
+                    hidden_since=None
+                    generation=None
                     while remaining_ms(deadline)>0:
                         check_cancelled(cancelled)
                         if changed():
                             return result("failed","navigation_changed")
-                        visible,ambiguous=_roots(page,expected,config)
-                        if not visible and not ambiguous:
-                            # Allow one more poll to detect a replacement dialog.
-                            pause(page,deadline,cancelled,200)
-                            visible,ambiguous=_roots(page,expected,config)
+                        current_generation=(len(requests),len(navigation),len(responses))
+                        if current_generation!=generation:
+                            hidden_since=None
+                            generation=current_generation
+                        # A permitted reload must have a successful document
+                        # response and committed navigation before verification.
+                        if requests and not (navigation and responses):
+                            pause(page,deadline,cancelled,150)
+                            continue
+                        try:
+                            ready=page.evaluate("() => document.readyState !== 'loading' && !!document.body")
+                            visible,ambiguous=_roots(page,expected,config) if ready else ([],False)
+                        except Exception:
                             if changed():
                                 return result("failed","navigation_changed")
-                            if not visible and not ambiguous:
-                                return result("dismissed","banner_hidden")
+                            if requests:
+                                pause(page,deadline,cancelled,150)
+                                continue
+                            raise
+                        if changed():
+                            return result("failed","navigation_changed")
+                        if current_generation!=(len(requests),len(navigation),len(responses)):
+                            hidden_since=None
+                            continue
+                        if ready and not visible and not ambiguous:
+                            if hidden_since is None:
+                                hidden_since=monotonic()
+                            elif monotonic()-hidden_since>=.6:
+                                return result("dismissed","banner_hidden_after_reload" if requests else "banner_hidden")
+                        else:
+                            hidden_since=None
                         pause(page,deadline,cancelled,150)
-                    return result("unresolved","banner_still_visible")
+                    if changed():
+                        return result("failed","navigation_changed")
+                    if requests and not (navigation and responses):
+                        return result("failed","navigation_changed")
+                    return result("unresolved","banner_still_visible" if hidden_since is None else "dismissal_unverified")
             pause(page,deadline,cancelled,200)
         return result("unresolved","requested_control_unavailable") if detected else result("not_detected","no_recognized_banner")
     except CaptureCancelled:
@@ -216,6 +289,8 @@ def handle_cookie_consent(page, expected, config=None, cancelled=lambda:False):
             return result("failed","navigation_changed")
         return result("failed","consent_timeout" if type(exc).__name__=="TimeoutError" else "consent_failed")
     finally:
+        page.remove_listener("request",on_request)
+        page.remove_listener("response",on_response)
         page.remove_listener("framenavigated",on_navigation)
         page.remove_listener("popup",on_popup)
 
