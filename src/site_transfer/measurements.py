@@ -14,6 +14,8 @@ SNAPSHOT_JS = r"""
     'color','background-color','background-image','font-family','font-size',
     'font-weight','font-style','line-height','letter-spacing','text-align',
     'text-transform','text-decoration-line','white-space','object-fit',
+    'flex-shrink','flex-basis','align-self','justify-self','grid-auto-flow','grid-column','grid-row',
+    'top','right','bottom','left','max-height','aspect-ratio','object-position','font-variant',
     'transition-property','transition-duration','transition-delay',
     'transition-timing-function','animation-name','animation-duration',
     'animation-delay','animation-timing-function','animation-iteration-count'
@@ -42,6 +44,18 @@ SNAPSHOT_JS = r"""
       if(options.measurements) for(const key of props) style[key]=clip(s.getPropertyValue(key));
       const row={selector:sel,tag:el.localName,role:clip(el.getAttribute('role'),80),
         rect:{x:round(b.x+scrollX),y:round(b.y+scrollY),width:round(b.width),height:round(b.height)},style};
+      if(options.measurements) {
+        row.parent_selector=el.parentElement?selector(el.parentElement):null;
+        row.semantic={
+          heading_level:/^h[1-6]$/.test(el.localName)?Number(el.localName[1]):null,
+          landmark_tag:['header','nav','main','aside','footer','section','article'].includes(el.localName),
+          has_aria_label:el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby'),
+          has_alt:el.localName==='img'?el.hasAttribute('alt'):null,
+          aria_hidden:el.getAttribute('aria-hidden')==='true',
+          aria_expanded:el.getAttribute('aria-expanded')==='true'?true:el.getAttribute('aria-expanded')==='false'?false:null,
+          tab_index:el.tabIndex, disabled:el.matches(':disabled,[aria-disabled="true"]')
+        };
+      }
       rows.push(row);
       if(options.interactions && candidates.length<12 &&
         el.matches('a[href],button,[role="button"],[aria-expanded],summary') &&

@@ -7,13 +7,14 @@ def summarize(snapshot):
     from .typography import typography
     from .colors import colors
     from .motion import motion
+    from .advanced_design import summarize_advanced
     elements = snapshot["elements"]
     return {"viewport": snapshot["viewport"], "element_count": len(elements),
             "typography": typography(elements), "colors": colors(elements),
             "spacing": frequency(elements, ("gap", "padding-top", "padding-left", "margin-top",
                                             "margin-bottom", "border-radius", "box-shadow")),
             "media_queries": snapshot["media_queries"], "motion": motion(snapshot),
-            "limits": snapshot["limits"]}
+            "limits": snapshot["limits"], "advanced": summarize_advanced(elements)}
 
 
 def aggregate(entries):
@@ -25,9 +26,12 @@ def aggregate(entries):
                 counter = totals.setdefault(category, {}).setdefault(prop, Counter())
                 for value in values:
                     counter[value["value"]] += value["count"]
-    return {"schema_version": 1, "basis": "Top sampled computed values per route and viewport; not exhaustive",
+    return {"schema_version": 2, "basis": "Top sampled computed values per route and viewport; not exhaustive",
             "reports": len(entries),
             "tokens": {category: {prop: [{"value": value, "count": count} for value, count in
                 sorted(counter.items(), key=lambda item: (-item[1], item[0]))[:20]]
                 for prop, counter in props.items()} for category, props in totals.items()},
-            "responsive": responsive(entries)}
+            "responsive": responsive(entries),
+            "advanced_reports": [{"url":entry["url"],"viewport":entry["viewport"],"path":entry.get("path"),
+                                  "probe_status":entry.get("probe_status"),"probe_count":entry.get("probe_count",0)}
+                                 for entry in entries if "advanced" in entry["summary"]]}

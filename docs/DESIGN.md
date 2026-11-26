@@ -17,3 +17,11 @@ Verification:
 - Optional: run the offline browser fixture in a test environment with Chromium installed (`python -m playwright install chromium`).
 
 PR-13 adds separate opt-in visual state screenshots; the legacy bounded hover observations above remain unchanged. See [interaction capture](INTERACTIONS.md).
+
+## PR-14 — Advanced Design Intelligence (v2)
+
+New reports retain legacy fields and add `summary.advanced` with observed CSS pixel lengths, RGBA palette (integer sRGB channels only), normalized timing in milliseconds (computed CSS, not playback), bounded headings, container hierarchy and DOM semantic metadata. No raw accessible labels or input values collected. Counts are property occurrences, not a reconstructed design system. Unsupported values remain in raw styles. Accessibility metadata is not an audit. `schemas/design-report.schema.json` mirrors the packaged structural schema used when writing reports. Tokens JSON v2 indexes advanced reports while retaining existing token and responsive fields. Old reports and comparisons remain readable.
+
+Responsive probes: after baseline screenshot and legacy hover observations, resize the first desktop-width context per route (width >=600) at 390/768/1024/1440/1920 CSS px, first ten routes only, 24 sampled positional selectors and 100 declared media queries, no added screenshots or navigation by the engine. Existing context is switched offline, then discarded; this is sequential width-only observation, not device emulation, not exact breakpoint inference. Failed or missing probes explicitly recorded; failed probe makes capture partial. All evidence exported via existing Reference Kit. Structural comparison checks additional shared computed CSS fields; actual cross-project GUI verification pending.
+
+Acceptance: run pytest including real Chromium fixture and full capture pipeline regression with and without scenarios; npm ci/test/build; rebuild Docker, new capture on authorized site, verify v2 JSON and five desktop probes, old report access, interaction states, ZIP, comparison across two projects and restart persistence. No DB migration. Tests and manual acceptance pending.

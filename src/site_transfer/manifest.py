@@ -130,7 +130,7 @@ def build_kit(config, job, root, output):
             "## Evidence order\n"
             "1. design/reference/capture-manifest.json and routes.json.\n"
             "2. Matching desktop/mobile screenshots.\n"
-            "3. design-tokens.json and per-viewport design reports if present.\n"
+            "3. design-tokens.json and per-viewport design reports if present. V2 includes normalized sampled CSS, layout/semantic metadata and width-only responsive probes; distinguish observed values from declared timing and missing evidence.\n"
             "4. asset-manifest.json if present: inventory only, no license granted.\n\n"
             "## Acceptance\nImplement bounded routes and responsive layouts; compare against matching screenshots, "
             "test behavior, document missing states, and update CONTEXT.md. Do not invent measurements or backend behavior. "

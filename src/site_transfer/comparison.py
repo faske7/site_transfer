@@ -99,7 +99,8 @@ def sampled_structure(a, b):
     for selector in shared:
         x, y = left[selector], right[selector]
         delta = {k: round(y["rect"][k] - x["rect"][k], 2) for k in ("x","y","width","height")}
-        styles = [k for k in ("font-size","font-family","font-weight","color","background-color","display","gap")
+        styles = [k for k in ("font-size","font-family","font-weight","color","background-color","display","gap","line-height","letter-spacing","padding-top","padding-left","border-radius",
+                               "position","grid-template-columns","flex-direction","max-width")
                   if k in x["style"] and k in y["style"] and x["style"][k] != y["style"][k]]
         if any(abs(v) > 1 for v in delta.values()) or styles:
             differences.append({"selector":selector,"rect_delta":delta,"changed_style_properties":styles})

@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Design report v2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "url",
+    "viewport_name",
+    "screenshot",
+    "summary",
+    "elements",
+    "interactions",
+    "responsive_probes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "url": {
+      "type": "string"
+    },
+    "viewport_name": {
+      "type": "string"
+    },
+    "screenshot": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "viewport",
+        "element_count",
+        "typography",
+        "colors",
+        "spacing",
+        "media_queries",
+        "motion",
+        "limits",
+        "advanced"
+      ],
+      "properties": {
+        "advanced": {
+          "type": "object",
+          "required": [
+            "basis",
+            "spacing_px",
+            "typography_px",
+            "palette",
+            "motion_ms",
+            "headings",
+            "containers",
+            "accessibility",
+            "limitations"
+          ]
+        }
+      }
+    },
+    "elements": {
+      "type": "array",
+      "maxItems": 350,
+      "items": {
+        "type": "object",
+        "required": [
+          "selector",
+          "tag",
+          "role",
+          "rect",
+          "style"
+        ],
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "rect": {
+            "type": "object",
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number"
+              },
+              "height": {
+                "type": "number"
+              }
+            }
+          },
+          "style": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "interactions": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "responsive_probes": {
+      "type": "object",
+      "required": [
+        "status",
+        "observations",
+        "limitations"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "observed",
+            "partial",
+            "skipped"
+          ]
+        },
+        "observations": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "required": [
+              "requested_width",
+              "status"
+            ],
+            "properties": {
+              "requested_width": {
+                "type": "integer"
+              },
+              "status": {
+                "enum": [
+                  "observed",
+                  "failed",
+                  "not_attempted"
+                ]
+              }
+            }
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
