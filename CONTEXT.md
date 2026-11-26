@@ -78,3 +78,5 @@ PR-14 extension: user approved six fixed device resolutions. Fresh Chromium prof
 
 ## Logical PR-15 — Capture reliability and quality (draft)
 Base 67b40bbf8a205899376916c16b4251b226d960c6. RE/MAX feedback documented in docs/CODEX_FEEDBACK_REMAXDELUX.md. Shared readiness, bounded scroll and PNG checks now integrated into baseline and device capture; additive manifest/GUI diagnostics; no migration. Historical evidence remains unchanged. Original Kit v2 expansion deferred; PR-16 not started. Full backend/frontend regression and manual Docker acceptance pending (direct git checkout unavailable in this environment). See docs/CAPTURE_QUALITY.md for limits and rollback.
+
+PR-15 follow-up: local routed browser fixtures and old manifest checks authored; explicit interaction PNG validation added without repeating actions or changing offline gate. No full suite result available. Keep draft.

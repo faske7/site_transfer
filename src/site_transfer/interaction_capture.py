@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 
 from .browser import context_for
 from .pipeline import CaptureCancelled
+from .screenshot_quality import inspect_png
 
 LIMITATIONS = [
     "One declared action per fresh browser context; no typing, submission, authentication or arbitrary scripts.",
@@ -167,21 +168,28 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
         target=root/relative
         target.parent.mkdir(parents=True,exist_ok=True)
         # Viewport screenshot preserves scroll and sticky UI; animations sampled as-is.
-        page.screenshot(path=str(target),full_page=False,animations="allow",timeout=5000)
+        data=page.screenshot(full_page=False,animations="allow",timeout=5000)
+        quality=inspect_png(data)
+        result["quality"]=quality
+        if quality["status"]=="invalid":
+            raise ValueError("Invalid interaction PNG")
         if cancelled():
             raise CaptureCancelled("Capture cancelled after state screenshot")
         if page.url!=state["url"] or navigated or popups:
             raise ValueError("Page changed during state screenshot")
+        target.write_bytes(data)
         result.update(status="captured",path=relative.as_posix(),
                       sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
                       before=before,after=after,expectation_verified=verified)
     except CaptureCancelled:
+        if target is not None:
+            target.unlink(missing_ok=True)
         raise
     except SkippedState as exc:
         result.update(status="skipped",reason=str(exc))
     except Exception:
         # Do not put raw Playwright messages (potentially URL secrets/page content) into evidence.
-        result.update(status="failed",reason="State load, action, assertion or screenshot failed")
+        result.update(status="failed",reason="State load, action, assertion or screenshot failed" if not result.get("quality") else "Interaction screenshot: "+result["quality"]["code"])
     finally:
         if context is not None:
             context.close()

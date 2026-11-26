@@ -17,10 +17,14 @@ def inspect_png(data, max_pixels=40_000_000):
             im.verify()
         with Image.open(BytesIO(data)) as im:
             im.load()
-            rgba=im.convert("RGBA")
-            background=Image.new("RGBA",rgba.size,"white")
-            background.alpha_composite(rgba)
-            rgb=background.convert("RGB")
+            if im.mode=="RGB":
+                rgb=im
+            elif "A" in im.getbands() or "transparency" in im.info:
+                rgba=im.convert("RGBA")
+                rgb=Image.new("RGB",rgba.size,"white")
+                rgb.paste(rgba,mask=rgba.getchannel("A"))
+            else:
+                rgb=im.convert("RGB")
             extrema=rgb.getextrema()
             if all(lo==hi for lo,hi in extrema):
                 code="white_png" if all(lo==255 for lo,_ in extrema) else "uniform_png"

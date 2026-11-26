@@ -27,12 +27,14 @@ def capture_png(page, target, expected, cancelled, timeout_ms, *, device=False):
         if left<=0:
             break
         # Reserve part of the total budget for a retry. All waits share a deadline.
-        end=min(deadline,monotonic()+left/(1000*(MAX_ATTEMPTS-attempt)))
+        share=.7 if attempt==0 else 1.0
+        end=min(deadline,monotonic()+left*share/1000)
+        prep_end=end-min(1.2,max(.1,(end-monotonic())*.3))
         diagnostic={"attempt":attempt+1}
         try:
-            diagnostic["readiness"]=wait_ready(page,min(end,monotonic()+2.0),cancelled)
-            diagnostic["scroll"]=smart_scroll(page,min(end,monotonic()+3.5),cancelled)
-            diagnostic["post_scroll_readiness"]=wait_ready(page,min(end,monotonic()+1.0),cancelled,min_ms=300)
+            diagnostic["readiness"]=wait_ready(page,min(prep_end,monotonic()+2.0),cancelled)
+            diagnostic["scroll"]=smart_scroll(page,min(prep_end-.35,monotonic()+3.5),cancelled)
+            diagnostic["post_scroll_readiness"]=wait_ready(page,min(prep_end,monotonic()+1.0),cancelled,min_ms=300)
             check_cancelled(cancelled)
             if origin(page.url)!=expected or page.url!=final_url:
                 raise QualityFailure({"status":"invalid","code":"navigation_changed"})
@@ -49,8 +51,8 @@ def capture_png(page, target, expected, cancelled, timeout_ms, *, device=False):
                 raise QualityFailure({"status":"invalid","code":"navigation_changed"})
             quality=inspect_png(data,limit)
             diagnostic.update(quality=quality,document=dims)
-            attempts.append(diagnostic)
             if quality["status"]=="invalid":
+                attempts.append(diagnostic)
                 continue
             warnings=[]
             if quality["status"]=="warning":
@@ -61,8 +63,12 @@ def capture_png(page, target, expected, cancelled, timeout_ms, *, device=False):
                 warnings.append("scroll_bounded")
             if diagnostic["readiness"]["status"]!="settled" or diagnostic["post_scroll_readiness"]["status"]!="settled":
                 warnings.append("readiness_unsettled")
+            if diagnostic["post_scroll_readiness"]["sample"].get("broken_images"):
+                warnings.append("broken_visible_images")
+            if device and not full:
+                warnings.append("viewport_fallback")
             quality=dict(quality,status="warning" if warnings else "valid",warnings=warnings,
-                         attempts=attempts,screenshot_mode="full_page" if full else "viewport")
+                         attempts=attempts+[diagnostic],screenshot_mode="full_page" if full else "viewport")
             check_cancelled(cancelled)
             # Do not create a registered image until validation has passed.
             temp=target.with_suffix(".pending")
@@ -83,5 +89,6 @@ def capture_png(page, target, expected, cancelled, timeout_ms, *, device=False):
         except Exception as exc:
             diagnostic["quality"]={"status":"invalid","code":"capture_timeout" if type(exc).__name__=="TimeoutError" else "capture_failed"}
             attempts.append(diagnostic)
-    raise QualityFailure({"status":"invalid","code":"retry_exhausted" if attempts else "capture_timeout",
+    last=attempts[-1]["quality"]["code"] if attempts else "capture_timeout"
+    raise QualityFailure({"status":"invalid","code":last if last in ("navigation_changed","document_budget") else "retry_exhausted" if attempts else "capture_timeout",
                           "attempts":attempts})

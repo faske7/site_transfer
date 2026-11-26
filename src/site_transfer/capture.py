@@ -111,6 +111,10 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     target.parent.mkdir(parents=True, exist_ok=True)
                     quality = capture_png(page, target, expected, cancelled, timeout)
                     capture_quality.append({"url":url,"viewport":viewport["name"],"quality":quality})
+                    artifacts.append({"path": relative.as_posix(), "url": url, "viewport": viewport["name"],
+                                      "width": viewport["width"], "height": viewport["height"],
+                                      "sha256": hashlib.sha256(target.read_bytes()).hexdigest(), "quality": quality})
+                    baseline_index = len(artifacts) - 1
                     if view_index == 0 and config.get("discovery", {}).get("enabled", True):
                         links = page.locator("a[href]").evaluate_all("(nodes) => nodes.slice(0, 2000).map(a => a.href)")
                         for link in links:
@@ -128,10 +132,6 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                             snapshot = measure(page, measurements, interactions)
                         except Exception as exc:
                             errors.append({"url": url, "viewport": viewport["name"], "stage": "design", "error": str(exc)[:500]})
-                    artifacts.append({"path": relative.as_posix(), "url": url, "viewport": viewport["name"],
-                                      "width": viewport["width"], "height": viewport["height"],
-                                      "sha256": hashlib.sha256(target.read_bytes()).hexdigest(), "quality": quality})
-                    baseline_index = len(artifacts) - 1
                     if snapshot is not None:
                         try:
                             summary = summarize(snapshot)
@@ -174,8 +174,11 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     capture_quality.append({"url":url,"viewport":viewport["name"],"quality":exc.quality})
                     errors.append({"url":url,"viewport":viewport["name"],"stage":"quality",
                                    "code":exc.quality["code"],"error":str(exc)})
-                except Exception:
-                    errors.append({"url": url, "viewport": viewport["name"], "stage":"capture", "code":"capture_failed", "error":"Page load or capture failed"})
+                except Exception as exc:
+                    code="capture_timeout" if type(exc).__name__=="TimeoutError" else "capture_failed"
+                    if baseline_index is None:
+                        capture_quality.append({"url":url,"viewport":viewport["name"],"quality":{"status":"invalid","code":code}})
+                    errors.append({"url": url, "viewport": viewport["name"], "stage":"capture", "code":code, "error":"Page load or capture failed"})
                 finally:
                     context.close()
                 done += 1

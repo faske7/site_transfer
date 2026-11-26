@@ -47,3 +47,5 @@ MVP 0.9.0 принят для персонального локального п
 
 ## PR-15 draft — capture quality
 RE/MAX audit exposed white and incomplete evidence. Baseline/device shared readiness, scroll and PNG quality metadata are additive; invalid images are not registered. Existing run hashes, network and recovery contracts remain. See CAPTURE_QUALITY.md and CODEX_FEEDBACK_REMAXDELUX.md. Full regression, Docker GUI and production acceptance pending; do not claim release readiness.
+
+PR-15 fixture coverage authored for delayed hydration/images, lazy/reveal, animation, overflow, invalid PNG, timeout, cancellation and old manifests. Explicit interaction PNGs also validated without changing the network gate. Execution pending.

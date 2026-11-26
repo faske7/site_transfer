@@ -64,6 +64,8 @@ def interaction_files(manifest):
             if "path" in state or "sha256" in state:
                 raise ValueError("Uncaptured state references image")
             continue
+        if state.get("quality",{}).get("status")=="invalid":
+            raise ValueError("Invalid interaction evidence")
         expected=f"interactions/{viewport}/{state_id}.png"
         checksum=state.get("sha256","")
         if state.get("path")!=expected or not re.fullmatch(r"[a-f0-9]{64}",checksum):

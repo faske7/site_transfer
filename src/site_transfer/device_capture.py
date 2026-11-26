@@ -101,10 +101,12 @@ def capture_device(browser, expected, root:Path, entry, cancelled=lambda:False):
         if target is not None:
             target.unlink(missing_ok=True)
         result.update(status="failed",reason=str(exc),quality=exc.quality)
-    except Exception:
+    except Exception as exc:
         if target is not None:
             target.unlink(missing_ok=True)
-        result.update(status="failed",reason="Device load, measurement or screenshot failed")
+        code="capture_timeout" if type(exc).__name__=="TimeoutError" else "device_failed"
+        result.update(status="failed",reason="Device load, measurement or screenshot failed",
+                      quality=result.get("quality",{"status":"invalid","code":code}))
     finally:
         if context is not None:
             context.close()
