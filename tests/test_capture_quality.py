@@ -149,3 +149,32 @@ def test_cancellation(page,tmp_path):
     with pytest.raises(CaptureCancelled):
         capture_png(page,tmp_path/"evidence.png",origin(URL),cancelled,12000)
     assert not (tmp_path/"evidence.png").exists()
+
+
+def test_device_full_page_timeout_falls_back(page,tmp_path,monkeypatch):
+    load(page,"<h1>Content</h1><div style='height:1200px;background:blue'></div>")
+    original=page.screenshot
+    calls=[]
+    from playwright.sync_api import TimeoutError
+    def screenshot(**kwargs):
+        calls.append(kwargs)
+        if kwargs["full_page"]:
+            raise TimeoutError("fixture full-page timeout")
+        return original(**kwargs)
+    monkeypatch.setattr(page,"screenshot",screenshot)
+    result=capture_png(page,tmp_path/"evidence.png",origin(URL),lambda:False,18000,device=True)
+    assert [c["full_page"] for c in calls]==[True,False]
+    assert calls[0]["timeout"]>=3000
+    assert result["attempts"][0]["failure_stage"]=="screenshot"
+    assert result["attempts"][1]["fallback_reason"]=="full_page_timeout"
+    assert result["screenshot_mode"]=="viewport"
+    assert "viewport_fallback" in result["warnings"]
+
+
+def test_device_delayed_long_page(page,tmp_path):
+    load(page,"""<body><script>setTimeout(()=>document.body.innerHTML=
+        '<h1>Hydrated</h1><div style="background:blue;height:2200px"></div>',2200)</script></body>""")
+    result=capture_png(page,tmp_path/"evidence.png",origin(URL),lambda:False,18000,device=True)
+    assert result["screenshot_mode"]=="full_page"
+    assert result["attempts"][0]["readiness"]["sample"]["height"]>2000
+    assert result["attempts"][0]["screenshot_timeout_ms"]>=3000

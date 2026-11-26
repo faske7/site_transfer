@@ -10,6 +10,7 @@ SAMPLE = """() => {
  return {state:document.readyState,body:!!b,
    text:(b?.innerText||'').length,nodes:b?.getElementsByTagName('*').length||0,
    width:Math.max(d.scrollWidth,innerWidth),height:Math.max(d.scrollHeight,innerHeight),
+   scrollable:Math.max(0,(document.scrollingElement||d).scrollHeight-innerHeight),
    fonts:!document.fonts||document.fonts.status==='loaded',
    pending_images:visible.filter(i=>!i.complete).length,
    broken_images:visible.filter(i=>i.complete&&!i.naturalWidth).length};
@@ -33,7 +34,7 @@ def pause(page, deadline, cancelled, ms=150):
     check_cancelled(cancelled)
 
 
-def wait_ready(page, deadline, cancelled, min_ms=900):
+def wait_ready(page, deadline, cancelled, min_ms=900, min_scroll=0):
     """Poll observable signals, not networkidle or animation completion."""
     start=monotonic()
     previous=None
@@ -45,7 +46,7 @@ def wait_ready(page, deadline, cancelled, min_ms=900):
         stable=stable+1 if latest==previous else 0
         previous=latest
         if (latest["body"] and latest["state"]=="complete" and latest["fonts"]
-                and not latest["pending_images"] and stable>=2
+                and not latest["pending_images"] and latest["scrollable"]>=min_scroll and stable>=2
                 and (monotonic()-start)*1000>=min_ms):
             return {"status":"settled","sample":latest}
         pause(page,deadline,cancelled)

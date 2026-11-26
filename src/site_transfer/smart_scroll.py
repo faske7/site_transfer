@@ -22,6 +22,8 @@ def smart_scroll(page, deadline, cancelled):
             page.evaluate("(y) => window.scrollTo({top:y,behavior:'instant'})",y)
             steps+=1
             pause(page,deadline,cancelled,200)
+        if not reached_bottom and remaining_ms(deadline):
+            reached_bottom=page.evaluate("() => scrollY >= Math.max(0,document.documentElement.scrollHeight-innerHeight)-2")
         return {"steps":steps,"reached_bottom":reached_bottom,
                 "status":"complete" if reached_bottom else "bounded"}
     finally:

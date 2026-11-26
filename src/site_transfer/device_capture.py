@@ -5,7 +5,7 @@ from pathlib import Path
 from .browser import context_for, origin
 from .measurements import measure
 from .pipeline import CaptureCancelled
-from .reliable_capture import capture_png, QualityFailure
+from .reliable_capture import capture_png, QualityFailure, DEVICE_TIMEOUT_MS
 
 PROFILES = (
     ("iphone-13", "iPhone 13", 390, 844, 3, True, True),
@@ -20,7 +20,7 @@ LIMITATIONS = [
     "Fixed requested viewport and screen dimensions, not exact browser chrome or operating system behavior.",
     "Mobile user-agent strings are illustrative profiles; UA Client Hints and platform may differ.",
     "Screenshots use CSS pixel scale; device DPR still affects page rendering and media queries.",
-    "Full-page screenshots are bounded to 8 million estimated CSS pixels; viewport fallback is explicit.",
+    "Full-page screenshots are bounded to 8 million estimated CSS pixels; viewport fallback on size or screenshot timeout is explicit.",
     "Separate device evidence, not part of baseline comparison or explicit interaction scenario execution.",
 ]
 MAX_PIXELS=8_000_000
@@ -70,7 +70,7 @@ def capture_device(browser, expected, root:Path, entry, cancelled=lambda:False):
         relative=Path("devices")/entry["id"]/(slug+".png")
         target=root/relative
         target.parent.mkdir(parents=True,exist_ok=True)
-        quality=capture_png(page,target,expected,cancelled,8000,device=True)
+        quality=capture_png(page,target,expected,cancelled,DEVICE_TIMEOUT_MS,device=True)
         result["quality"]=quality
         observed=page.evaluate("""() => ({
             inner_width:innerWidth,inner_height:innerHeight,screen_width:screen.width,screen_height:screen.height,

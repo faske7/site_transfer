@@ -196,7 +196,8 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     scenario_states[state_index] = result
                     if result["status"] != "captured":
                         errors.append({"url": url, "viewport": viewport["name"], "stage": "interaction",
-                                       "state_id": state["id"], "error": result["reason"]})
+                                       "state_id": state["id"], "error": result["reason"],
+                                       "code":result.get("code","state_unavailable"),"failure_stage":result.get("failure_stage")})
                     record()
             if device_enabled and index < device_route_limit:
                 start = len(device_entries)
@@ -210,7 +211,7 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     device_entries[device_index] = result
                     if result["status"] != "captured":
                         errors.append({"url":url,"viewport":device["id"],"stage":"device",
-                                       "error":result["reason"]})
+                                       "error":result["reason"],"code":result.get("quality",{}).get("code","device_failed")})
                     record()
             index += 1
     return record()
