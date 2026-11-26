@@ -30,7 +30,8 @@ def inspect_png(data, max_pixels=40_000_000):
                 code="white_png" if all(lo==255 for lo,_ in extrema) else "uniform_png"
                 return {"status":"invalid","code":code,"image_size":[w,h]}
             rgb.thumbnail((256,256))
-            pixels=rgb.getdata()
+            raw=rgb.tobytes()
+            pixels=zip(raw[0::3], raw[1::3], raw[2::3])
             count=rgb.width*rgb.height
             near_white=sum(min(p)>=248 for p in pixels)/count
             return {"status":"warning" if near_white>=.995 else "valid",
