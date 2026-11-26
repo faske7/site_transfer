@@ -124,7 +124,7 @@ def test_cancel(page):
 
 
 @pytest.mark.parametrize("changes",[
-    {"strategy":"unknown"}, {"timeout_ms":9000}, {"selectors":["button"]},
+    {"strategy":"unknown"}, {"timeout_ms":21000}, {"selectors":["button"]},
     {"strategy":"manual_selector"}, {"detect_automatically":False},
     {"selectors":["#reject"]}, {"arbitrary_js":"alert(1)"},
 ])
@@ -356,3 +356,80 @@ def test_custom_banner_requires_opposing_choice(page):
     result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,strategy="accept_all"))
     assert result["status"]=="not_detected",result
     assert not result["clicked"]
+
+
+
+@pytest.mark.parametrize("strategy,choice",[("accept_all","accept"),("reject_optional","reject")])
+def test_explicit_reviewed_overlay_without_keyword(page,strategy,choice):
+    html=CUSTOM_HTML.replace('class="fixed bottom-0"','class="fixed bottom-0 left-0 right-0"')
+    html=html.replace("Na tomto webu používáme soubory cookies.","Vaše preference.")
+    load(page,html)
+    options=dict(OPTIONS,strategy=strategy,banner_selector="div.fixed.bottom-0.left-0.right-0",
+                 detect_automatically=False,timeout_ms=4000)
+    validate_config({"source":{"url":URL},"target":{"project_name":"demo"},
+                     "browser":{"cookie_consent":options}})
+    result=handle_cookie_consent(page,origin(URL),options)
+    assert result["status"]=="dismissed",result
+    assert result["click_completed"]
+    assert page.evaluate("window.choice")==choice
+
+
+def test_explicit_overlay_requires_opposing_choice(page):
+    load(page,CUSTOM_HTML.replace("Na tomto webu používáme soubory cookies.","Review changes.")
+         .replace("Odmítnout vše","Settings"))
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,strategy="accept_all",
+        banner_selector="div.fixed.bottom-0",detect_automatically=False))
+    assert not result["clicked"],result
+
+
+def test_transient_detection_retry(page,monkeypatch):
+    from playwright.sync_api import TimeoutError
+    from site_transfer import cookie_consent as cc
+    load(page,CUSTOM_HTML)
+    original=cc._roots
+    calls=0
+    def probe(*args):
+        nonlocal calls
+        calls+=1
+        if calls==1:
+            raise TimeoutError("fixture stale selector")
+        return original(*args)
+    monkeypatch.setattr(cc,"_roots",probe)
+    result=cc.handle_cookie_consent(page,origin(URL),dict(OPTIONS,strategy="accept_all",timeout_ms=4000))
+    assert result["status"]=="dismissed",result
+    assert result["transient_retries"]==1
+
+
+def test_incomplete_detection_not_reported_absent(page,monkeypatch):
+    from playwright.sync_api import TimeoutError
+    from site_transfer import cookie_consent as cc
+    load(page,CUSTOM_HTML)
+    def probe(*args):
+        raise TimeoutError("fixture stale selector")
+    monkeypatch.setattr(cc,"_roots",probe)
+    result=cc.handle_cookie_consent(page,origin(URL),dict(OPTIONS,timeout_ms=1000))
+    assert result["code"]=="consent_detection_incomplete",result
+    assert not result["clicked"]
+
+
+def test_click_timeout_not_retried(page,monkeypatch):
+    from playwright.sync_api import ElementHandle,TimeoutError
+    load(page,CUSTOM_HTML)
+    calls=0
+    def click(*args,**kwargs):
+        nonlocal calls
+        calls+=1
+        raise TimeoutError("fixture click timeout")
+    monkeypatch.setattr(ElementHandle,"click",click)
+    result=handle_cookie_consent(page,origin(URL),dict(OPTIONS,strategy="accept_all"))
+    assert result["stage"]=="click",result
+    assert result["code"]=="consent_timeout"
+    assert result["clicked"] and not result["click_completed"]
+    assert calls==1
+
+
+@pytest.mark.parametrize("selector",["div .fixed","div.fixed,button","div:has(button)","*"])
+def test_unsafe_banner_selector_rejected(selector):
+    with pytest.raises(ConfigError):
+        validate_config({"source":{"url":URL},"target":{"project_name":"demo"},
+             "browser":{"cookie_consent":dict(OPTIONS,banner_selector=selector)}})

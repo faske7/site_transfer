@@ -19,7 +19,7 @@ Create a new project using the same routes, viewports and scenarios, adding:
 
 Strategies: reject_optional (default when enabled), necessary_only, accept_all
 (explicit opt-in only), manual_selector, disabled. No automatic fallback to
-accept_all. Selectors are exact simple CSS ID/class/data-testid strings.
+accept_all. Control selectors are exact simple CSS ID/class/data-testid strings. The reviewed banner_selector additionally permits 2–6 compound classes on an optional div/section/aside/dialog tag, not combinators or arbitrary CSS.
 For manual_selector provide banner_selector and one to five selectors, and
 review the root and control in the actual reference. Example:
 
@@ -49,7 +49,7 @@ SSRF guard, WebSocket block or post-load interaction offline gate.
 Runs before shared screenshot readiness, scrolling, measurement, asset
 inventory and responsive probes; device contexts and interaction contexts
 also run preflight separately. Interaction preflight is before offline gate.
-The budget is 1–8s, default 5s, per context; existing job hard limit unchanged.
+The discovery/action budget is 1–20s, default 5s, per context; a completed click receives at least 1.5s for verification (up to 1.5s beyond the original deadline). Existing job hard limit unchanged.
 Cooperative deadline cannot preempt all synchronous browser operations.
 
 Evidence statuses: disabled, not_detected (no recognized root; not proof of
@@ -73,3 +73,5 @@ After UTF-8 correction, targeted user run on 5fd5dc7: three Czech control tests 
 Production follow-up: user stopped RE/MAX consent-enabled capture after widespread navigation_changed failures. Old metadata does not distinguish same-URL reload from other navigation; actual cause not yet proven. Added exact-URL reload support and six browser cases plus one full pipeline case. Retest pending.
 
 Production diagnosis after d53a85c: user confirmed 27 cookie tests and 182 full backend passes (11 skips, 1 warning). RE/MAX run 701cc6eb-f9d0-4b34-b34e-29ee2cc4473a failed before click with one main frame event and zero document requests. Read-only Chromium CDP observation confirmed exact-URL historyApi event. Actual controls: Odmítnout vše and Souhlasím se všemi inside unnamed fixed Tailwind container. Structural fallback and CDP guard added; cookie-related root text assumed by fallback but not supplied in diagnostic. Twelve added test cases including custom SPA pipeline. Retest pending; no live dismissal yet verified.
+
+RE/MAX Mac acceptance (user report): direct exact Czech accept button within div.fixed.bottom-0.left-0.right-0, with opposing reject button and verified root disappearance, succeeded on both viewports; local timeline also reached bottom. Previous automated runtime timed out before click on desktop; isolated mobile succeeded at 5568ms. Use reviewed banner_selector div.fixed.bottom-0.left-0.right-0, detect_automatically false, strategy accept_all, timeout_ms 20000 for this reference. Explicit reviewed overlays lacking cookie prose require opposing recognized choices and fixed/sticky/dialog positioning; automatic fallback still requires cookie text. Snapshot-based DOM reads, transient retries and stage diagnostics added; a click is never retried. New implementation tests not yet run; no screenshot artifacts independently inspected.

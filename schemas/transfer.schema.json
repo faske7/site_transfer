@@ -118,7 +118,7 @@
             "timeout_ms": {
               "type": "integer",
               "minimum": 1000,
-              "maximum": 8000,
+              "maximum": 20000,
               "default": 5000
             },
             "detect_automatically": {
@@ -128,7 +128,7 @@
             "banner_selector": {
               "type": "string",
               "maxLength": 160,
-              "pattern": "^(?:[.#][A-Za-z_][A-Za-z0-9_-]*|\\[data-testid=\"[A-Za-z0-9_-]+\"\\])$"
+              "pattern": "^(?:[.#][A-Za-z_][A-Za-z0-9_-]*|\\[data-testid=\"[A-Za-z0-9_-]+\"\\]|(?:div|section|aside|dialog)?(?:\\.[A-Za-z_][A-Za-z0-9_-]*){2,6})$"
             },
             "selectors": {
               "type": "array",

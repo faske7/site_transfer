@@ -56,6 +56,7 @@ PROVIDER_IDS = {
 }
 CONTROL_JS = r"""
 el => {
+  if(!el.isConnected)return null;
   let n=el;
   while(n){
     if(n.matches?.('a,form,label,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="link"],[download],iframe,object,embed')) return null;
@@ -100,66 +101,74 @@ CUSTOM_ACCEPT_TEXT = re.compile(
 )
 
 
+def _paired_choices(root, config):
+    accept,ambiguous_accept=_controls(root,config,"accept_all")
+    reject,ambiguous_reject=_controls(root,config,"reject_optional")
+    return bool((accept or ambiguous_accept) and (reject or ambiguous_reject))
+
+
 def _custom_roots(frame, config):
-    # Seed from exact accept labels, not arbitrary elements across the DOM.
-    # Ordinary DOM ancestor walk; known-root path retains open shadow support.
-    candidates=frame.locator("button,[role=button]").filter(has_text=CUSTOM_ACCEPT_TEXT)
-    count=candidates.count()
-    if count>MAX_ROOTS:
+    candidates=frame.locator("button,[role=button]").filter(has_text=CUSTOM_ACCEPT_TEXT).element_handles()
+    if len(candidates)>MAX_ROOTS:
         return [],True
     roots=[]
-    for i in range(count):
-        candidate=candidates.nth(i)
-        if not candidate.is_visible() or not candidate.evaluate(CONTROL_JS,timeout=500):
+    for candidate in candidates:
+        if not candidate.is_visible() or not candidate.evaluate(CONTROL_JS):
             continue
-        ancestor=candidate
-        for _ in range(6):
-            ancestor=ancestor.locator("xpath=..")
-            if ancestor.count()!=1:
-                break
-            if not ancestor.evaluate(CUSTOM_ROOT_JS,timeout=500) or not ancestor.is_visible():
-                continue
-            accept,accept_ambiguous=_controls(ancestor,config,"accept_all")
-            reject,reject_ambiguous=_controls(ancestor,config,"reject_optional")
-            if (accept or accept_ambiguous) and (reject or reject_ambiguous):
-                roots.append(ancestor)
-                if len(roots)>1:
-                    return roots,True
-                break
+        ancestor=candidate.evaluate_handle(
+            "el => {const qualifies=("+CUSTOM_ROOT_JS+");"
+            "for(let p=el.parentElement,i=0;p&&i<6;p=p.parentElement,i++){"
+            "if(qualifies(p))return p;}return null;}"
+        )
+        root=ancestor.as_element()
+        if root is None:
+            ancestor.dispose()
+            continue
+        if root.is_visible() and _paired_choices(root,config):
+            if not any(root.evaluate("(a,b)=>a===b",other) for other in roots):
+                roots.append(root)
+            if len(roots)>1:
+                return roots,True
     return roots,False
 
 
 def _roots(page, expected, config):
     selectors=list(ROOTS) if config.get("detect_automatically",True) else []
-    if config.get("banner_selector"):
-        # Explicit root overrides auto candidates (avoid nested CMP ambiguity).
-        selectors=[config["banner_selector"]]
+    explicit=config.get("banner_selector")
+    if explicit:
+        selectors=[explicit]
     if not selectors:
         return [],False
     result=[]
+    frames=[]
     for frame in page.frames[:MAX_FRAMES]:
         try:
-            if origin(frame.url)!=expected:
-                continue
+            if origin(frame.url)==expected:
+                frames.append(frame)
         except ValueError:
             continue
-        roots=frame.locator(",".join(selectors))
-        count=roots.count()
-        if count>MAX_ROOTS:
+    for frame in frames:
+        roots=frame.locator(",".join(selectors)).element_handles()
+        if len(roots)>MAX_ROOTS:
             return [],True
-        for i in range(count):
-            root=roots.nth(i)
-            if root.is_visible() and root.evaluate(ROOT_JS,timeout=500):
+        for root in roots:
+            if not root.is_visible():
+                continue
+            # Explicitly reviewed selector may identify an unnamed overlay
+            # even if its prose lacks a recognized cookie keyword. Require
+            # opposing exact choices and actual overlay positioning instead.
+            marked=root.evaluate(ROOT_JS)
+            reviewed=(explicit and config.get("strategy")!="manual_selector" and
+                      root.evaluate("""el => el.isConnected &&
+                          (['fixed','sticky'].includes(getComputedStyle(el).position) ||
+                           el.matches('dialog,[role=dialog],[role=alertdialog]'))""")
+                      and _paired_choices(root,config))
+            if marked or reviewed:
                 result.append(root)
                 if len(result)>1:
                     return result,True
-    if not result and config.get("detect_automatically",True) and not config.get("banner_selector"):
-        for frame in page.frames[:MAX_FRAMES]:
-            try:
-                if origin(frame.url)!=expected:
-                    continue
-            except ValueError:
-                continue
+    if not result and config.get("detect_automatically",True) and not explicit:
+        for frame in frames:
             roots,ambiguous=_custom_roots(frame,config)
             if ambiguous:
                 return roots,True
@@ -176,22 +185,35 @@ def _matches_control(info, strategy):
 
 
 def _controls(root, config, strategy):
-    controls=root.locator(",".join(config["selectors"]) if strategy=="manual_selector"
-                          else "button,[role=button],input[type=button]")
-    count=controls.count()
-    if count>MAX_CONTROLS:
+    controls=root.query_selector_all(",".join(config["selectors"]) if strategy=="manual_selector"
+                                     else "button,[role=button],input[type=button]")
+    if len(controls)>MAX_CONTROLS:
         return [],True
     matches=[]
-    for i in range(count):
-        control=controls.nth(i)
-        if not control.is_visible():
-            continue
-        info=control.evaluate(CONTROL_JS,timeout=500)
-        if _matches_control(info,strategy):
+    for control in controls:
+        if control.is_visible() and _matches_control(control.evaluate(CONTROL_JS),strategy):
             matches.append(control)
             if len(matches)>1:
                 return matches,True
     return matches,False
+
+
+def _transient(exc):
+    return type(exc).__name__=="TimeoutError" or any(
+        marker in str(exc).lower() for marker in (
+            "execution context was destroyed", "cannot find context", "cannot find object",
+            "frame was detached", "frame has been detached", "element is not attached",
+            "node is detached", "node is not attached",
+        ))
+
+
+def _within(root,control):
+    return root.evaluate("""(root,el)=>{
+        if(!root.isConnected||!el.isConnected)return false;
+        for(let n=el;n;n=n.parentElement||n.getRootNode()?.host||null)
+            if(n===root)return true;
+        return false;
+    }""",control)
 
 
 def handle_cookie_consent(page, expected, config=None, cancelled=lambda:False):
@@ -215,6 +237,10 @@ def handle_cookie_consent(page, expected, config=None, cancelled=lambda:False):
     popups=[]
     clicked=False
     detected=False
+    click_completed=False
+    stage="observer"
+    transient_retries=0
+    scan_complete=False
 
     def on_request(request):
         if request.is_navigation_request():
@@ -277,6 +303,7 @@ def handle_cookie_consent(page, expected, config=None, cancelled=lambda:False):
     def result(status,code):
         return {"status":status,"code":code,"strategy":strategy,
                 "clicked":clicked,"detected":detected,
+                "click_completed":click_completed,"stage":stage,"transient_retries":transient_retries,
                 "navigation":{"document_requests":len(requests),
                               "main_frame_events":len(navigation)+len(same_document),
                               "document_commits":len(navigation),
@@ -306,83 +333,106 @@ def handle_cookie_consent(page, expected, config=None, cancelled=lambda:False):
             check_cancelled(cancelled)
             if changed():
                 return result("failed","navigation_changed")
-            roots,ambiguous=_roots(page,expected,config)
-            if ambiguous:
-                detected=True
-                return result("unresolved","ambiguous_banner")
-            if roots:
-                detected=True
-                root=roots[0]
-                matches,ambiguous=_controls(root,config,strategy)
+            try:
+                stage="root_detection"
+                scan_complete=False
+                roots,ambiguous=_roots(page,expected,config)
+                scan_complete=True
                 if ambiguous:
-                    return result("unresolved","ambiguous_control")
-                if matches and remaining_ms(deadline)>=350:
-                    # Pin the actual element; never re-resolve a changed nth()
-                    # locator during the action. Recheck safety at action time.
-                    root_handle=root.element_handle(timeout=min(500,remaining_ms(deadline)))
-                    handle=matches[0].element_handle(timeout=min(500,remaining_ms(deadline)))
-                    check_cancelled(cancelled)
-                    if changed():
-                        return result("failed","navigation_changed")
-                    if (root_handle is None or handle is None or
-                            not _matches_control(handle.evaluate(CONTROL_JS),strategy)):
-                        return result("unresolved","control_changed")
-                    owner=handle.owner_frame()
-                    if owner is None or origin(owner.url)!=expected:
-                        return result("unresolved","control_changed")
-                    if changed():
-                        return result("failed","navigation_changed")
-                    clicked=True
-                    handle.click(timeout=max(1,min(1500,remaining_ms(deadline))),no_wait_after=True)
-                    hidden_since=None
-                    generation=None
-                    while remaining_ms(deadline)>0:
-                        check_cancelled(cancelled)
-                        if changed():
-                            return result("failed","navigation_changed")
-                        current_generation=(len(requests),len(navigation),len(responses))
-                        if current_generation!=generation:
-                            hidden_since=None
-                            generation=current_generation
-                        # A permitted reload must have a successful document
-                        # response and committed navigation before verification.
-                        if requests and not (navigation and responses):
-                            pause(page,deadline,cancelled,150)
-                            continue
-                        try:
-                            ready=page.evaluate("() => document.readyState !== 'loading' && !!document.body")
-                            visible,ambiguous=_roots(page,expected,config) if ready else ([],False)
-                            # A custom overlay may lose its buttons while still
-                            # covering the page. Verify the pinned original root
-                            # too, unless a new document has replaced it.
-                            old_root_visible=not navigation and root_handle.is_visible()
-                        except Exception:
-                            if changed():
-                                return result("failed","navigation_changed")
-                            if requests:
-                                pause(page,deadline,cancelled,150)
-                                continue
-                            raise
-                        if changed():
-                            return result("failed","navigation_changed")
-                        if current_generation!=(len(requests),len(navigation),len(responses)):
-                            hidden_since=None
-                            continue
-                        if ready and not visible and not ambiguous and not old_root_visible:
-                            if hidden_since is None:
-                                hidden_since=monotonic()
-                            elif monotonic()-hidden_since>=.6:
-                                return result("dismissed","banner_hidden_after_reload" if requests else "banner_hidden")
-                        else:
-                            hidden_since=None
-                        pause(page,deadline,cancelled,150)
-                    if changed():
-                        return result("failed","navigation_changed")
-                    if requests and not (navigation and responses):
-                        return result("failed","navigation_changed")
-                    return result("unresolved","banner_still_visible" if hidden_since is None else "dismissal_unverified")
+                    detected=True
+                    return result("unresolved","ambiguous_banner")
+                if roots:
+                    detected=True
+                    root_handle=roots[0]
+                    stage="control_detection"
+                    matches,ambiguous=_controls(root_handle,config,strategy)
+                    if ambiguous:
+                        return result("unresolved","ambiguous_control")
+                    if matches:
+                        stage="control_recheck"
+                        handle=matches[0]
+                        owner=handle.owner_frame()
+                        if (owner is not None and origin(owner.url)==expected and
+                            root_handle.is_visible() and handle.is_visible() and
+                            _within(root_handle,handle) and
+                            _matches_control(handle.evaluate(CONTROL_JS),strategy)):
+                            if remaining_ms(deadline)<350:
+                                return result("unresolved","consent_budget_exhausted")
+                            break
+            except CaptureCancelled:
+                raise
+            except Exception as exc:
+                if changed():
+                    return result("failed","navigation_changed")
+                if not _transient(exc):
+                    raise
+                transient_retries+=1
+                scan_complete=False
             pause(page,deadline,cancelled,200)
-        return result("unresolved","requested_control_unavailable") if detected else result("not_detected","no_recognized_banner")
+        else:
+            if not scan_complete:
+                return result("failed","consent_detection_incomplete")
+            return result("unresolved","requested_control_unavailable") if detected else result("not_detected","no_recognized_banner")
+
+        check_cancelled(cancelled)
+        if changed():
+            return result("failed","navigation_changed")
+        stage="click"
+        clicked=True
+        handle.click(timeout=max(1,min(5000,remaining_ms(deadline))),no_wait_after=True)
+        click_completed=True
+        deadline=max(deadline,monotonic()+1.5)
+        stage="verification"
+        hidden_since=None
+        generation=None
+        verification_complete=False
+        while remaining_ms(deadline)>0:
+            check_cancelled(cancelled)
+            if changed():
+                return result("failed","navigation_changed")
+            current_generation=(len(requests),len(navigation),len(responses))
+            if current_generation!=generation:
+                hidden_since=None
+                generation=current_generation
+            if requests and not (navigation and responses):
+                pause(page,deadline,cancelled,150)
+                continue
+            try:
+                verification_complete=False
+                ready=page.evaluate("() => document.readyState !== 'loading' && !!document.body")
+                visible,ambiguous=_roots(page,expected,config) if ready else ([],False)
+                old_root_visible=not navigation and root_handle.is_visible()
+                verification_complete=True
+            except CaptureCancelled:
+                raise
+            except Exception as exc:
+                if changed():
+                    return result("failed","navigation_changed")
+                if not (requests or _transient(exc)):
+                    raise
+                transient_retries+=1
+                hidden_since=None
+                pause(page,deadline,cancelled,150)
+                continue
+            if changed():
+                return result("failed","navigation_changed")
+            if current_generation!=(len(requests),len(navigation),len(responses)):
+                hidden_since=None
+                continue
+            if ready and not visible and not ambiguous and not old_root_visible:
+                if hidden_since is None:
+                    hidden_since=monotonic()
+                elif monotonic()-hidden_since>=.6:
+                    stage="complete"
+                    return result("dismissed","banner_hidden_after_reload" if requests else "banner_hidden")
+            else:
+                hidden_since=None
+            pause(page,deadline,cancelled,150)
+        if changed() or (requests and not (navigation and responses)):
+            return result("failed","navigation_changed")
+        if not verification_complete:
+            return result("unresolved","dismissal_unverified")
+        return result("unresolved","banner_still_visible" if hidden_since is None else "dismissal_unverified")
     except CaptureCancelled:
         raise
     except Exception as exc:
