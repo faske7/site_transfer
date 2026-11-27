@@ -249,8 +249,17 @@ def selected_files(manifest):
     return files
 
 
-def build_kit(config, job, root, output):
-    """Write ZIP to caller-owned temporary file. No changes to original project."""
+def read_verified_json(path, checksum):
+    """Parse the same bytes whose digest was checked, not a later version."""
+    data = path.read_bytes()
+    if hashlib.sha256(data).hexdigest() != checksum:
+        raise ValueError("Evidence checksum mismatch")
+    return json.loads(data)
+
+
+def verify_selected_evidence(job, root):
+    """Share the existing selected-run integrity checks with offline consumers."""
+    root = Path(root)
     if job["status"] not in ("completed", "partial"):
         raise ValueError("Select a completed or partial capture")
     manifest = job["manifest"]
@@ -258,7 +267,8 @@ def build_kit(config, job, root, output):
         raise ValueError("No screenshots available")
     entries = []
     total = 0
-    for name, expected in selected_files(manifest).items():
+    selected = selected_files(manifest)
+    for name, expected in selected.items():
         path = evidence_file(root, name)
         size = path.stat().st_size
         total += size
@@ -268,21 +278,39 @@ def build_kit(config, job, root, output):
         if expected and expected != checksum:
             raise ValueError("Screenshot checksum mismatch")
         entries.append((name, path, size, checksum))
-    if json.loads(evidence_file(root, "capture-manifest.json").read_text()) != manifest:
+    # Parse only the registry-backed JSON here; kit export retains its legacy
+    # treatment of other JSON files. Recheck bytes used for parsing.
+    entry_index = {name: (path, checksum) for name, path, _, checksum in entries}
+    reports = {}
+
+    def report_for(name):
+        path, checksum = entry_index[name]
+        report = read_verified_json(path, checksum)
+        reports[name] = report
+        return report
+
+    if report_for("capture-manifest.json") != manifest:
         raise ValueError("Capture manifest differs from registry")
     if manifest.get("interaction_manifest"):
-        report=json.loads(evidence_file(root,"interaction-manifest.json").read_text())
+        report=report_for("interaction-manifest.json")
         if report.get("states")!=manifest.get("interaction_states"):
             raise ValueError("Interaction manifest differs from registry")
     if manifest.get("device_manifest"):
         from .device_capture import registry_entry
-        report=json.loads(evidence_file(root,"device-manifest.json").read_text())
+        report=report_for("device-manifest.json")
         if [registry_entry(entry) for entry in report.get("devices",[])]!=manifest.get("device_captures"):
             raise ValueError("Device manifest differs from registry")
     if manifest.get("scroll_timeline_manifest"):
-        report=json.loads(evidence_file(root,"scroll-timeline-manifest.json").read_text())
+        report=report_for("scroll-timeline-manifest.json")
         if report.get("sequences")!=manifest.get("scroll_timeline"):
             raise ValueError("Timeline manifest differs from registry")
+    return entries, reports, selected
+
+
+def build_kit(config, job, root, output):
+    """Write ZIP to caller-owned temporary file. No changes to original project."""
+    manifest = job["manifest"]
+    entries, _, _ = verify_selected_evidence(job, root)
     with TemporaryDirectory() as directory:
         docs = initialize_project(config, Path(directory))
         task = docs / "TASK.md"
