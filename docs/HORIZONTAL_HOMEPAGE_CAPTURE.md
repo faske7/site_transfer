@@ -46,5 +46,8 @@ run the existing maximum-coverage RE/MAX configuration. Inspect
 scroll-timeline-manifest.json and ZIP; compare baseline and original frame
 dimensions and hashes, and inspect actual derived pixels. Repeat for wide
 desktop if needed. Known interaction scroll_target_unreached on two desktop
-views remains a separate deferred Adaptive Scroll Target Resolution task.
+views was investigated in the follow-up below; general Adaptive Scroll Target Resolution remains deferred.
 Tests authored; execution and production verification pending.
+
+## Follow-up: interaction lazy loading
+The user's offline/guarded-online experiment isolated a dynamically loaded Next.js chunk failure during scroll. The full guarded-online diagnostic was subsequently reported OK by the user. The same PR now retains guarded GET/HEAD during isolated scroll actions and rejects recognizable application error screens. Other actions remain offline. This is separate from panorama derivation and does not change ScrollEngine target semantics. Verify the committed implementation on desktop and desktop_wide; adaptive target resolution remains deferred if genuinely needed. See INTERACTIONS.md.

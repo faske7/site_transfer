@@ -185,11 +185,23 @@ def context_for(browser, viewport, source_origin, network_gate=None, device_opti
             destination = origin(request.url)
             allowed = request.method in {"GET", "HEAD"} and (
                 not request.is_navigation_request() or destination == source_origin)
+            # A scroll action may load public assets but cannot navigate the
+            # main frame. Preserve the existing same-origin subframe guard.
+            if network_gate is not None and network_gate.get("scroll_read_only") and request.is_navigation_request():
+                try:
+                    main_navigation = request.frame.parent_frame is None
+                except Exception:
+                    main_navigation = True  # frame not yet available: fail closed
+                if main_navigation:
+                    network_gate["navigation_attempted"] = True
+                    allowed = False
         except ValueError:
             allowed = False
         if allowed:
             route.continue_()
         else:
+            if network_gate is not None and network_gate.get("scroll_read_only"):
+                network_gate["blocked"] = network_gate.get("blocked", 0) + 1
             route.abort()
     context.route("**/*", guard)
     context.route_web_socket("**/*", lambda ws: ws.close())

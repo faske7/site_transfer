@@ -14,9 +14,10 @@ from .scroll_performance import PerformanceDiagnostics, release_dom_cache
 
 LIMITATIONS = [
     "One declared action per fresh browser context (scroll may use bounded wheel steps); no typing, submission, authentication or arbitrary scripts.",
-    "Network is disabled after initial load; states requiring new resources may be incomplete.",
+    "After preflight, scroll retains guarded public GET/HEAD resources; click, hover and focus are offline.",
     "An image is an observation, not proof of semantic success unless an explicit expectation is checked.",
-    "Trusted authorized public references only; offline mode and DOM checks are not a hostile-site sandbox.",
+    "Trusted authorized public references only; request guards and DOM checks are not a hostile-site sandbox. GET may have side effects.",
+    "Recognized top-level client application error screens are rejected; other rendering failures may remain undetected.",
 ]
 
 TARGET_JS = r"""
@@ -55,6 +56,18 @@ class StateFailure(ValueError):
         super().__init__(message)
         self.code=code
         self.details=details
+
+
+def reject_application_crash(page):
+    """Reject a visible, top-level Next.js error screen, not arbitrary console noise."""
+    crashed=page.evaluate(r"""() => {
+        const body=document.body;
+        if(!body)return false;
+        const text=(body.innerText||'').replace(/\s+/g,' ').trim();
+        return text.length<=1200 && /Application error:\s*a client-side exception has occurred/i.test(text);
+    }""")
+    if crashed:
+        raise StateFailure("application_crash","Client-side rendering failure")
 
 
 def planned_states(config, routes, views):
@@ -96,6 +109,11 @@ def observe(page, state, cancelled=lambda:False):
         before=report.pop("before")
         after=report.pop("after")
         after["scroll_observation"]=report
+        try:
+            reject_application_crash(page)
+        except StateFailure as exc:
+            exc.details.update(before=before,after=after)
+            raise
         if not report["progress"]:
             raise StateFailure("scroll_unchanged","Requested scroll did not produce observed movement",
                                before=before,after=after)
@@ -178,10 +196,16 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
             raise StateFailure("navigation_changed","Initial state navigated away or opened a popup")
         check_cancelled(cancelled)
         stage="network_gate"
-        # Fresh context has no imported cookies/auth. From here no requests may
-        # be initiated through the route handler; offline mode adds a second barrier.
-        gate["closed"]=True
-        context.set_offline(True)
+        # Scroll is wheel-only and may trigger lazy-loaded code/assets.
+        # Keep the existing guarded public GET/HEAD transport in that case.
+        # Explicit UI controls still use both offline barriers.
+        if state["action"]=="scroll":
+            gate["scroll_read_only"]=True
+            result["network_mode"]="guarded_scroll"
+        else:
+            gate["closed"]=True
+            context.set_offline(True)
+            result["network_mode"]="offline"
         navigated=[]
         page.on("framenavigated",lambda frame:navigated.append(True) if frame==page.main_frame else None)
         page.evaluate("""() => {
@@ -195,11 +219,13 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
         if cancelled():
             raise CaptureCancelled("Capture cancelled before action")
         stage="action"
+        reject_application_crash(page)
         before,after,verified=observe(page,state,cancelled)
+        reject_application_crash(page)
         result.update(before=before,after=after,expectation_verified=verified)
         if cancelled():
             raise CaptureCancelled("Capture cancelled after action")
-        if page.url!=state["url"] or navigated or popups:
+        if page.url!=state["url"] or navigated or popups or gate.get("navigation_attempted"):
             raise StateFailure("navigation_changed","Interaction attempted navigation or popup")
         relative=Path("interactions")/state["viewport"]/(state["id"]+".png")
         target=root/relative
@@ -214,8 +240,9 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
             raise StateFailure(quality["code"],"Invalid interaction PNG")
         if cancelled():
             raise CaptureCancelled("Capture cancelled after state screenshot")
-        if page.url!=state["url"] or navigated or popups:
+        if page.url!=state["url"] or navigated or popups or gate.get("navigation_attempted"):
             raise StateFailure("navigation_changed","Page changed during state screenshot")
+        reject_application_crash(page)
         warnings=[]
         if result["readiness"]["status"]!="settled":
             warnings.append("readiness_unsettled")
