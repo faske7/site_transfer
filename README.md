@@ -50,3 +50,5 @@ PR-13 adds opt-in isolated hover/focus/click/scroll state evidence, separate vie
 PR-14 Advanced Design Intelligence adds design report v2, normalized sampled CSS, semantic metadata and bounded responsive width probes. See [design evidence](docs/DESIGN.md).
 
 PR-15 adds opt-in [scroll timeline evidence](docs/SCROLL_TIMELINE.md) for scroll-driven pages and lazy-loaded mobile layouts, with hashed ordered viewport frames and difference maps in the Reference Kit.
+
+PR-16 introduces [Scroll Intelligence](docs/SCROLL_INTELLIGENCE.md), shared wheel input and sampled root/nested/horizontal/transform observations for scroll states and timelines.

@@ -49,3 +49,5 @@ No dedicated Studio gallery in this change; download kit to inspect. Existing
 baseline/device/interaction outputs unchanged. New configs opt in; old configs
 remain disabled. No raw asset redistribution or action beyond scrolling.
 Tests authored; local and Docker acceptance pending.
+
+PR-16 adds per-frame scroll_observation and scroll_geometry plus sequence scroll_intelligence. Measurable active axes determine end; transform-only end is unverified. Existing limits and paths unchanged. See SCROLL_INTELLIGENCE.md.
