@@ -1,11 +1,8 @@
 """Opt-in ordered viewport evidence; independent fresh context per sequence."""
 import hashlib
 import json
-from io import BytesIO
 from pathlib import Path
-from time import monotonic
-
-from PIL import Image, ImageChops
+from time import monotonic, perf_counter
 from .browser import context_for
 from .cookie_consent import handle_cookie_consent
 from .page_readiness import check_cancelled, remaining_ms, pause, wait_ready
@@ -13,9 +10,10 @@ from .pipeline import CaptureCancelled
 from .screenshot_quality import inspect_png
 from .scroll_engine import ScrollEngine
 from .scroll_detection import snapshot_scroll
+from .scroll_performance import DOM_CANDIDATES, PerformanceDiagnostics, release_dom_cache
+from .scroll_pixel_diff import PIXEL_THRESHOLD, PixelDiffSequence, visual_diff
 
 MAX_SEQUENCE_BYTES = 96 * 1024 * 1024
-PIXEL_THRESHOLD = 12
 LIMITATIONS = [
     "Viewport pixel difference includes ordinary scrolling, carousels and animation.",
     "DOM signature is sampled; not a complete DOM diff.",
@@ -27,10 +25,9 @@ LIMITATIONS = [
 ]
 
 SNAPSHOT = r"""
-(track) => {
+(track) => {""" + DOM_CANDIDATES + r"""
     const doc=document.scrollingElement;
-    const nodes=document.body.querySelectorAll('*');
-    const limit=Math.min(nodes.length,5000);
+    const limit=nodes.length;
     window.__stTimelineIds ??= new WeakMap();
     window.__stTimelineCounter ??= 0;
     const tags=[],elements=[];
@@ -38,10 +35,11 @@ SNAPSHOT = r"""
         const el=nodes[i];
         tags.push(el.tagName);
         if(!track||elements.length>=500)continue;
-        const r=el.getBoundingClientRect();
+        const r=rect(el);
         if(r.width<1||r.height<1||r.bottom<=0||r.top>=innerHeight||r.right<=0||r.left>=innerWidth)continue;
-        const s=getComputedStyle(el);
+        const s=style(el);
         if(s.visibility==='hidden'||s.display==='none')continue;
+        metrics.visible_elements_sampled++;
         if(!window.__stTimelineIds.has(el))window.__stTimelineIds.set(el,++window.__stTimelineCounter);
         const round=n=>Math.round(n*10)/10;
         elements.push({id:window.__stTimelineIds.get(el),tag:el.tagName,
@@ -49,36 +47,27 @@ SNAPSHOT = r"""
           x:round(r.x),y:round(r.y),width:round(r.width),height:round(r.height),
           transform:s.transform,opacity:s.opacity,position:s.position});
     }
-    return {scroll_y:Math.round(doc.scrollTop),document_height:doc.scrollHeight,
-      viewport_height:innerHeight,max_scroll:Math.max(0,doc.scrollHeight-innerHeight),
-      dom_count:nodes.length,tags,text:(document.body.innerText||'').slice(0,100000),
-      visible_elements:elements,dom_sample_truncated:nodes.length>limit,
-      motion_sample_truncated:track&&elements.length>=500};
+    metrics.geometry_reads+=2;
+    const height=doc.scrollHeight;
+    return {scroll_y:Math.round(doc.scrollTop),document_height:height,
+      viewport_height:innerHeight,max_scroll:Math.max(0,height-innerHeight),
+      dom_count:domCount,tags,text:(document.body.innerText||'').slice(0,100000),
+      visible_elements:elements,dom_sample_truncated:domCount>limit,
+      motion_sample_truncated:track&&elements.length>=500,_performance:metrics};
 }
 """
 
 
-def snapshot(page, track):
+def snapshot(page, track, diagnostics=None):
+    started=perf_counter()
     state=page.evaluate(SNAPSHOT,track)
     signature=json.dumps([state.pop("tags"),state.pop("text")],ensure_ascii=False)
     state["dom_hash"]=hashlib.sha256(signature.encode()).hexdigest()
+    if diagnostics is None:
+        state.pop("_performance",None)
+    else:
+        diagnostics.snapshot(state,"timeline_snapshot_ms",started)
     return state
-
-
-def visual_diff(previous, current):
-    with Image.open(BytesIO(previous)) as a, Image.open(BytesIO(current)) as b:
-        a,b=a.convert("RGB"),b.convert("RGB")
-        if a.size!=b.size:
-            raise ValueError("Timeline viewport dimensions changed")
-        r,g,blue=ImageChops.difference(a,b).split()
-        mask=ImageChops.lighter(ImageChops.lighter(r,g),blue).point(
-            lambda x:255 if x>PIXEL_THRESHOLD else 0)
-        percent=round(mask.histogram()[255]/(a.width*a.height)*100,4)
-        background=b.convert("L").convert("RGB").point(lambda x:x//3)
-        overlay=Image.composite(Image.new("RGB",b.size,(255,45,45)),background,mask)
-        output=BytesIO()
-        overlay.save(output,format="PNG")
-        return percent,output.getvalue()
 
 
 def compare_motion(previous,current):
@@ -132,8 +121,10 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
            "step_px":step,"settle_ms":settle,"motion_tracking":track,
            "visual_threshold_percent":threshold,"pixel_threshold":PIXEL_THRESHOLD,
            "stable_steps":stable_limit,"frames":[],"stop_reason":"not_attempted"}
-    context=None
-    previous=previous_bytes=None
+    context=page=None
+    previous=None
+    diagnostics=PerformanceDiagnostics()
+    pixel_diff=PixelDiffSequence(diagnostics)
     stable=0
     total_bytes=0
     engine=None
@@ -166,7 +157,7 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
         wait_ready(page,min(deadline,monotonic()+4),cancelled)
         page.evaluate("window.scrollTo(0,0)")
         pause(page,deadline,cancelled,settle)
-        engine=ScrollEngine(page,cancelled,mobile=mobile)
+        engine=ScrollEngine(page,cancelled,mobile=mobile,diagnostics=diagnostics)
         entry["stop_reason"]="max_frames"
         for index in range(options.get("max_frames",150)):
             check_cancelled(cancelled)
@@ -176,7 +167,7 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
             if page.url!=url or navigations or popups:
                 entry["stop_reason"]="navigation_changed"
                 break
-            state=snapshot(page,track)
+            state=snapshot(page,track,diagnostics)
             left=remaining_ms(deadline)
             if left<=0:
                 entry["stop_reason"]="time_budget"
@@ -186,16 +177,19 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
             if page.url!=url or navigations or popups:
                 entry["stop_reason"]="navigation_changed"
                 break
+            phase=perf_counter()
             quality=inspect_png(data)
+            diagnostics.add_time("other_processing_ms",phase)
             if quality["status"]=="invalid":
                 entry.update(stop_reason="invalid_frame",failed_frame=index,failed_quality=quality)
                 break
-            visual=None
-            diff=None
+            phase=perf_counter()
             geometry_changed=dom_changed=None
             motion=compare_motion(previous,state) if track else []
+            diagnostics.add_time("other_processing_ms",phase)
+            visual,diff=pixel_diff.advance(data)
+            phase=perf_counter()
             if previous is not None:
-                visual,diff=visual_diff(previous_bytes,data)
                 geometry_changed=(abs(state["scroll_y"]-previous["scroll_y"])>2 or
                                   abs(state["document_height"]-previous["document_height"])>2)
                 dom_changed=(state["dom_count"]!=previous["dom_count"] or
@@ -204,7 +198,10 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
             # Keep raw frame and map within a sequence byte budget. Metadata
             # stores bounded motion samples rather than duplicating every node.
             motion_count=len(motion)
-            scroll_state=snapshot_scroll(page)
+            diagnostics.add_time("other_processing_ms",phase)
+            # This is after the screenshot/diff: never reuse pre-frame geometry.
+            scroll_state=snapshot_scroll(page,diagnostics)
+            phase=perf_counter()
             measurable_end=engine.end(scroll_state)
             # A genuinely short static document is not a custom transform scene.
             static_end=(not engine.modes and scroll_state["root"]["max_y"]<=3
@@ -226,6 +223,7 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
                    "quality":quality}
             needed=len(data)+(len(diff) if diff is not None else 0)
             if total_bytes+needed>MAX_SEQUENCE_BYTES:
+                diagnostics.add_time("other_processing_ms",phase)
                 entry["stop_reason"]="byte_budget"
                 break
             frame["screenshot"]=write_bytes(root,prefix/f"frame-{index:03d}.png",data)
@@ -237,6 +235,8 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
             entry["scroll_intelligence"]=engine.summary()
             entry["bytes"]=total_bytes
             entry["elapsed_ms"]=int((monotonic()-start)*1000)
+            diagnostics.add_time("other_processing_ms",phase)
+            entry["performance"]=diagnostics.report()
             if stable>=stable_limit:
                 entry["stop_reason"]=("bottom_reached" if frame["at_bottom"] else
                     "transform_end_unverified" if engine.transform_only and not engine.targets else
@@ -246,7 +246,7 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
                 checkpoint(entry)
                 break
             checkpoint(entry)
-            previous,previous_bytes=state,data
+            previous=state
             if index+1>=options.get("max_frames",150):
                 break
             last_step=engine.step(step,settle,deadline)
@@ -258,10 +258,14 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
     except Exception as exc:
         entry["stop_reason"]="timeline_timeout" if type(exc).__name__=="TimeoutError" else "timeline_failed"
     finally:
+        pixel_diff.close()
         if context is not None:
+            # Context close releases all document state even on cancellation.
+            release_dom_cache(page)
             context.close()
         if entry["status"]=="not_attempted":
             entry["status"]="failed"
         entry["elapsed_ms"]=int((monotonic()-start)*1000)
         entry["frame_count"]=len(entry["frames"])
+        entry["performance"]=diagnostics.report()
     return entry

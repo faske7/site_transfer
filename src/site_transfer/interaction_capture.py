@@ -10,6 +10,7 @@ from .screenshot_quality import inspect_png
 from .page_readiness import wait_ready, check_cancelled
 from .cookie_consent import handle_cookie_consent, consent_quality
 from .scroll_engine import ScrollEngine
+from .scroll_performance import PerformanceDiagnostics, release_dom_cache
 
 LIMITATIONS = [
     "One declared action per fresh browser context (scroll may use bounded wheel steps); no typing, submission, authentication or arbitrary scripts.",
@@ -88,8 +89,10 @@ def observe(page, state, cancelled=lambda:False):
     action=state["action"]
     before={"scroll_y":page.evaluate("() => scrollY")}
     if action=="scroll":
-        engine=ScrollEngine(page,cancelled,mobile=state["width"]<600)
+        diagnostics=PerformanceDiagnostics()
+        engine=ScrollEngine(page,cancelled,mobile=state["width"]<600,diagnostics=diagnostics)
         report=engine.scroll_to(state["scroll_y"],state["wait_ms"],monotonic()+12)
+        report["performance"]=diagnostics.report()
         before=report.pop("before")
         after=report.pop("after")
         after["scroll_observation"]=report
@@ -145,7 +148,7 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
         raise CaptureCancelled("Capture cancelled before interaction")
     result=dict(state)
     gate={"closed":False,"blocked":0}
-    context=None
+    context=page=None
     target=None
     stage="navigation"
     start=monotonic()
@@ -244,6 +247,8 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
         result.update(status="failed",reason="Interaction "+code,failure_stage=stage,code=code)
     finally:
         if context is not None:
+            if state["action"]=="scroll":
+                release_dom_cache(page)
             context.close()
     result["blocked_requests"]=gate["blocked"]
     result["elapsed_ms"]=int((monotonic()-start)*1000)

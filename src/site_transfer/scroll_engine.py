@@ -1,15 +1,16 @@
 """Wheel-first scroll engine shared by isolated states and timelines."""
-from time import monotonic
+from time import monotonic, perf_counter
 
 from .page_readiness import check_cancelled, pause, remaining_ms
 from .scroll_detection import snapshot_scroll, classify, at_end
 
 
 class ScrollEngine:
-    def __init__(self,page,cancelled=lambda:False,mobile=False):
+    def __init__(self,page,cancelled=lambda:False,mobile=False,diagnostics=None):
         self.page=page
         self.cancelled=cancelled
         self.mobile=mobile
+        self.diagnostics=diagnostics
         self.targets={}
         self.modes=set()
         self.stalls=0
@@ -57,20 +58,20 @@ class ScrollEngine:
 
     def step(self,step,settle_ms,deadline):
         check_cancelled(self.cancelled)
-        initial=snapshot_scroll(self.page)
+        initial=snapshot_scroll(self.page,self.diagnostics)
         if not remaining_ms(deadline):
             return None
         point,axis,delta=self._input(initial,step)
         self.page.mouse.move(*point)
-        idle=snapshot_scroll(self.page)
+        idle=snapshot_scroll(self.page,self.diagnostics)
         pause(self.page,deadline,self.cancelled,80)
-        before=snapshot_scroll(self.page)
+        before=snapshot_scroll(self.page,self.diagnostics)
         if not remaining_ms(deadline):
             return None
         self.page.mouse.wheel(delta if axis=="x" else 0,delta if axis=="y" else 0)
         pause(self.page,deadline,self.cancelled,max(120,settle_ms))
-        after=snapshot_scroll(self.page)
-        observation=classify(before,after,idle)
+        after=snapshot_scroll(self.page,self.diagnostics)
+        observation=self._classify(before,after,idle)
         fallback=False
         # Same limited mobile fallback as the previous timeline: do not
         # bypass wheel-driven desktop animation or nested/horizontal motion.
@@ -79,8 +80,8 @@ class ScrollEngine:
                 and remaining_ms(deadline)>0):
             self.page.evaluate("(step)=>window.scrollBy(0,step)",step)
             pause(self.page,deadline,self.cancelled,max(120,settle_ms))
-            after=snapshot_scroll(self.page)
-            observation=classify(before,after,idle)
+            after=snapshot_scroll(self.page,self.diagnostics)
+            observation=self._classify(before,after,idle)
             fallback=True
         for change in observation["coordinate_changes"]:
             axes=self.targets.setdefault(change["target"],set())
@@ -98,8 +99,15 @@ class ScrollEngine:
         self.last=observation
         return observation
 
+    def _classify(self,before,after,idle):
+        started=perf_counter()
+        result=classify(before,after,idle)
+        if self.diagnostics is not None:
+            self.diagnostics.add_time("other_processing_ms",started)
+        return result
+
     def end(self,state=None):
-        return at_end(state or snapshot_scroll(self.page),self.targets)
+        return at_end(state or snapshot_scroll(self.page,self.diagnostics),self.targets)
 
     def summary(self):
         modes=sorted(self.modes)
@@ -113,14 +121,14 @@ class ScrollEngine:
         For non-document scroll, report observed movement and input distance,
         never pretend a transform or nested coordinate equals document Y.
         """
-        initial=snapshot_scroll(self.page)
+        initial=snapshot_scroll(self.page,self.diagnostics)
         observations=[]
         attempted=0
         for _ in range(24):
             check_cancelled(self.cancelled)
             if not remaining_ms(deadline):
                 break
-            state=snapshot_scroll(self.page)
+            state=snapshot_scroll(self.page,self.diagnostics)
             y=state["root"]["y"]
             if abs(y-target)<=2 and observations:
                 break
@@ -140,7 +148,7 @@ class ScrollEngine:
             if self.stalls>=3 or self.end():
                 break
         pause(self.page,deadline,self.cancelled,settle_ms)
-        final=snapshot_scroll(self.page)
+        final=snapshot_scroll(self.page,self.diagnostics)
         y=final["root"]["y"]
         moved=any(o["progress"] for o in observations)
         document_y="y" in self.targets.get("document",set())

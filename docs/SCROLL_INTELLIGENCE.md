@@ -55,3 +55,5 @@ vertical, horizontal, nested vertical/horizontal, transform-only, hybrid,
 idle animation rejection and cancellation. Then real RE/MAX full production
 test (maximum supported coverage, no reduced acceptance configuration).
 Tests authored; not run on this remote editing surface. Keep draft.
+
+PR-17 shares document candidates while preserving separate observations across input/idle/fallback. See [performance design](SCROLL_PERFORMANCE.md).
