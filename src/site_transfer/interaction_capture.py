@@ -1,10 +1,14 @@
 """Explicit, isolated visual state probes; not an arbitrary browser script runner."""
 import hashlib
+from time import monotonic
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .browser import context_for
+from .browser import context_for, origin
 from .pipeline import CaptureCancelled
+from .screenshot_quality import inspect_png
+from .page_readiness import wait_ready, check_cancelled
+from .cookie_consent import handle_cookie_consent, consent_quality
 
 LIMITATIONS = [
     "One declared action per fresh browser context; no typing, submission, authentication or arbitrary scripts.",
@@ -43,6 +47,14 @@ class SkippedState(ValueError):
     """An action is unsupported or rejected before it is attempted."""
 
 
+class StateFailure(ValueError):
+    """Stable, sanitized state failure with optional numeric observations."""
+    def __init__(self, code, message, **details):
+        super().__init__(message)
+        self.code=code
+        self.details=details
+
+
 def planned_states(config, routes, views):
     by_path={urlsplit(url).path or "/":url for url in routes}
     result=[]
@@ -79,7 +91,8 @@ def observe(page, state):
         page.wait_for_timeout(state["wait_ms"])
         after={"scroll_y":page.evaluate("() => scrollY")}
         if after["scroll_y"]==before["scroll_y"]:
-            raise ValueError("Requested scroll did not change position")
+            raise StateFailure("scroll_unchanged","Requested scroll did not change position",
+                               before=before,after=after)
     else:
         if action=="hover" and not page.evaluate("() => matchMedia('(hover: hover)').matches"):
             raise SkippedState("Hover unavailable on this viewport")
@@ -108,26 +121,28 @@ def observe(page, state):
         except Exception:
             after["target"]=None
         if action=="focus" and not (after["target"] or {}).get("focused"):
-            raise ValueError("Focus not observed")
+            raise StateFailure("focus_not_observed","Focus not observed")
         if action=="hover" and not (after["target"] or {}).get("hovered"):
-            raise ValueError("Hover not observed")
+            raise StateFailure("hover_not_observed","Hover not observed")
     expectation=state.get("expect_visible")
     verified=None
     if expectation:
         target=page.locator("css="+expectation)
         verified=target.count()==1 and target.is_visible()
         if not verified:
-            raise ValueError("Expected visible element not observed")
+            raise StateFailure("expectation_not_met","Expected visible element not observed")
     return before,after,verified
 
 
-def capture_state(browser, viewport, expected, root: Path, state, cancelled=lambda:False):
+def capture_state(browser, viewport, expected, root: Path, state, cancelled=lambda:False, *, consent_config=None):
     if cancelled():
         raise CaptureCancelled("Capture cancelled before interaction")
     result=dict(state)
     gate={"closed":False,"blocked":0}
     context=None
     target=None
+    stage="navigation"
+    start=monotonic()
     try:
         context=context_for(browser,viewport,expected,network_gate=gate)
         page=context.new_page()
@@ -138,10 +153,22 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
         context.on("page",close_popup)
         response=page.goto(state["url"],wait_until="domcontentloaded",timeout=10000)
         if response is None or response.status>=400:
-            raise ValueError("Initial state load failed")
-        page.wait_for_timeout(700)
+            raise StateFailure("initial_load_failed","Initial state load failed")
+        if page.url!=state["url"] or origin(page.url)!=expected or popups:
+            raise StateFailure("navigation_changed","Initial state navigated away or opened a popup")
+        stage="cookie_consent"
+        consent=handle_cookie_consent(page,expected,consent_config,cancelled)
+        result["cookie_consent"]=consent
+        if consent["code"]=="navigation_changed" or popups or page.url!=state["url"]:
+            raise StateFailure("navigation_changed","Cookie consent navigation rejected")
+        stage="readiness"
+        # Allow bounded normal loading before the offline gate; no action yet.
+        result["readiness"]=wait_ready(page,monotonic()+5.0,cancelled,
+                                       min_scroll=1 if state["action"]=="scroll" else 0)
         if page.url!=state["url"] or popups:
-            raise ValueError("Initial state navigated away or opened a popup")
+            raise StateFailure("navigation_changed","Initial state navigated away or opened a popup")
+        check_cancelled(cancelled)
+        stage="network_gate"
         # Fresh context has no imported cookies/auth. From here no requests may
         # be initiated through the route handler; offline mode adds a second barrier.
         gate["closed"]=True
@@ -158,34 +185,60 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
         }""")
         if cancelled():
             raise CaptureCancelled("Capture cancelled before action")
+        stage="action"
         before,after,verified=observe(page,state)
+        result.update(before=before,after=after,expectation_verified=verified)
         if cancelled():
             raise CaptureCancelled("Capture cancelled after action")
         if page.url!=state["url"] or navigated or popups:
-            raise ValueError("Interaction attempted navigation or popup")
+            raise StateFailure("navigation_changed","Interaction attempted navigation or popup")
         relative=Path("interactions")/state["viewport"]/(state["id"]+".png")
         target=root/relative
         target.parent.mkdir(parents=True,exist_ok=True)
         # Viewport screenshot preserves scroll and sticky UI; animations sampled as-is.
-        page.screenshot(path=str(target),full_page=False,animations="allow",timeout=5000)
+        stage="screenshot"
+        data=page.screenshot(full_page=False,animations="allow",timeout=8000)
+        stage="validation"
+        quality=inspect_png(data)
+        result["quality"]=quality
+        if quality["status"]=="invalid":
+            raise StateFailure(quality["code"],"Invalid interaction PNG")
         if cancelled():
             raise CaptureCancelled("Capture cancelled after state screenshot")
         if page.url!=state["url"] or navigated or popups:
-            raise ValueError("Page changed during state screenshot")
+            raise StateFailure("navigation_changed","Page changed during state screenshot")
+        warnings=[]
+        if result["readiness"]["status"]!="settled":
+            warnings.append("readiness_unsettled")
+        if gate["blocked"]:
+            warnings.append("network_requests_blocked")
+        if quality["status"]=="warning":
+            warnings.append(quality["code"])
+        if warnings:
+            result["quality"]=dict(quality,status="warning",warnings=warnings)
+        result["quality"]=consent_quality(result["quality"],consent)
+        stage="publication"
+        target.write_bytes(data)
         result.update(status="captured",path=relative.as_posix(),
                       sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
                       before=before,after=after,expectation_verified=verified)
     except CaptureCancelled:
+        if target is not None:
+            target.unlink(missing_ok=True)
         raise
     except SkippedState as exc:
-        result.update(status="skipped",reason=str(exc))
-    except Exception:
+        result.update(status="skipped",reason=str(exc),failure_stage=stage,code="unsafe_or_missing_target")
+    except StateFailure as exc:
+        result.update(status="failed",reason=str(exc),failure_stage=stage,code=exc.code,**exc.details)
+    except Exception as exc:
         # Do not put raw Playwright messages (potentially URL secrets/page content) into evidence.
-        result.update(status="failed",reason="State load, action, assertion or screenshot failed")
+        code=stage+"_timeout" if type(exc).__name__=="TimeoutError" else stage+"_failed"
+        result.update(status="failed",reason="Interaction "+code,failure_stage=stage,code=code)
     finally:
         if context is not None:
             context.close()
     result["blocked_requests"]=gate["blocked"]
+    result["elapsed_ms"]=int((monotonic()-start)*1000)
     if result["status"]!="captured" and target is not None:
         target.unlink(missing_ok=True)
     return result

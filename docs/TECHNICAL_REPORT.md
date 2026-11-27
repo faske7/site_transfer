@@ -44,3 +44,10 @@ Selected-run ZIP содержит README.md, AGENTS.md, CONTEXT.md, TASK.md, ref
 
 ## Заключение
 MVP 0.9.0 принят для персонального локального применения. Завершение девяти PR не означает полное исполнение каждого расширенного требования исходного SPEC или готовность к публичному распространению. Следующий этап — стабилизация и проверка реального Codex workflow перед расширением продукта. См. ROADMAP.md.
+
+## PR-15 draft — capture quality
+RE/MAX audit exposed white and incomplete evidence. Baseline/device shared readiness, scroll and PNG quality metadata are additive; invalid images are not registered. Existing run hashes, network and recovery contracts remain. See CAPTURE_QUALITY.md and CODEX_FEEDBACK_REMAXDELUX.md. Full regression, Docker GUI and production acceptance pending; do not claim release readiness.
+
+PR-15 fixture coverage authored for delayed hydration/images, lazy/reveal, animation, overflow, invalid PNG, timeout, cancellation and old manifests. Explicit interaction PNGs also validated without changing the network gate. Execution pending.
+
+PR-15 production follow-up: user logs confirmed 149 local Python passes, 11 real PostgreSQL passes separately, 5 Vitest and build, 51 targeted passes after Pillow compatibility fix, Docker readiness true. RE/MAX run had 10 baseline warnings and eight errors (2 mobile retry exhaustion, 6 scroll states). Follow-up changes not yet retested. See CAPTURE_QUALITY.md for bounds and limitations.

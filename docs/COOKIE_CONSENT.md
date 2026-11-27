@@ -1,0 +1,77 @@
+# Cookie consent preflight (PR-15)
+
+Opt-in per immutable project configuration. Existing projects remain disabled.
+Create a new project using the same routes, viewports and scenarios, adding:
+
+~~~json
+"browser": {
+  "engine": "chromium",
+  "headless": true,
+  "timeout_ms": 30000,
+  "cookie_consent": {
+    "enabled": true,
+    "strategy": "reject_optional",
+    "timeout_ms": 5000,
+    "detect_automatically": true
+  }
+}
+~~~
+
+Strategies: reject_optional (default when enabled), necessary_only, accept_all
+(explicit opt-in only), manual_selector, disabled. No automatic fallback to
+accept_all. Control selectors are exact simple CSS ID/class/data-testid strings. The reviewed banner_selector additionally permits 2–6 compound classes on an optional div/section/aside/dialog tag, not combinators or arbitrary CSS.
+For manual_selector provide banner_selector and one to five selectors, and
+review the root and control in the actual reference. Example:
+
+~~~json
+"cookie_consent": {
+  "enabled": true,
+  "strategy": "manual_selector",
+  "detect_automatically": false,
+  "banner_selector": "#cookie-banner",
+  "selectors": ["#reject-cookies"],
+  "timeout_ms": 5000
+}
+~~~
+
+Automatic detection uses bounded known container selectors and exact normalized
+button labels in English, Czech, German, French and Russian, plus selected
+OneTrust/Cookiebot IDs. Other supported container candidates include CookieYes,
+Usercentrics and consentmanager; vendor versions are not certified. Ambiguous
+roots/buttons are not clicked. A structural fallback recognizes ordinary DOM fixed/sticky containers or dialogs with visible cookie-related text and both exact accept and reject/necessary controls. It includes the Czech label Souhlasím se všemi. It does not match arbitrary overlays or generic confirmation buttons; the pinned root must also disappear after the click. Open Shadow DOM via Playwright CSS locators and
+same-origin frames (up to five total) are best effort; closed shadow roots and
+cross-origin frame controls are unsupported. Only consent-marked visible roots,
+safe button controls outside forms/links, at most one real click per context.
+No storage injection, overlay removal, user identity, consent cookie values or
+raw site error messages in reports. No change to GET/HEAD-only public proxy,
+SSRF guard, WebSocket block or post-load interaction offline gate.
+
+Runs before shared screenshot readiness, scrolling, measurement, asset
+inventory and responsive probes; device contexts and interaction contexts
+also run preflight separately. Interaction preflight is before offline gate.
+The discovery/action budget is 1–20s, default 5s, per context; a completed click receives at least 1.5s for verification (up to 1.5s beyond the original deadline). Existing job hard limit unchanged.
+Cooperative deadline cannot preempt all synchronous browser operations.
+
+Evidence statuses: disabled, not_detected (no recognized root; not proof of
+absence), dismissed (recognized root no longer visible on two polls; not
+proof of stored consent), unresolved, failed. Unresolved/failed are manifest
+errors and screenshot warnings where evidence exists, so partial runs are
+honest. Navigation/popup during handling fails the affected capture, except one observed successful non-redirected GET document reload of the exact original URL after the consent click. The reload must commit and return a successful document response before banner disappearance can be verified. Chromium CDP distinguishes document commits from same-document events. Exact-URL historyApi events are permitted during hydration or consent; other same-document event types and URL changes (including hash/query), pre-click document navigation, redirects, repeated reloads and popups remain rejected. If CDP observation is unavailable the preflight does not click. No second click; original timeout remains. Sanitized navigation counts/reason/phase are recorded. Banner absence must persist for at least 600ms; later changes are still possible. Metadata
+in capture_quality/artifacts, device and interaction entries, GUI and ZIP.
+Legacy manifests remain readable. No migration.
+
+Production RE/MAX actual selector and dismissal not yet verified; automatic
+detection may miss custom CMPs. Review actual images even for dismissed.
+No guarantee of vendor-specific preference persistence, tracking prevention,
+late banners, nested dialogs or full visual completeness. Do not use the
+feature for terms, login, payments or other non-cookie consent.
+
+Fixture verification: synthetic multilingual HTML must declare UTF-8 both in the document and routed HTTP content type. On 8b32449, user regression returned 15 passed and 4 failures involving Czech controls. The fixture lacked both declarations; corrected fixture now asserts decoded Czech labels before testing the handler. Rerun pending, not a production validation.
+
+After UTF-8 correction, targeted user run on 5fd5dc7: three Czech control tests passed, pipeline interaction still failed. The original test document had no visible content at scroll 600; split into positive colored content and negative blank viewport cases, requiring white PNG rejection and exclusion from partial ZIP. This tests rather than weakens the screenshot quality gate. Rerun pending.
+
+Production follow-up: user stopped RE/MAX consent-enabled capture after widespread navigation_changed failures. Old metadata does not distinguish same-URL reload from other navigation; actual cause not yet proven. Added exact-URL reload support and six browser cases plus one full pipeline case. Retest pending.
+
+Production diagnosis after d53a85c: user confirmed 27 cookie tests and 182 full backend passes (11 skips, 1 warning). RE/MAX run 701cc6eb-f9d0-4b34-b34e-29ee2cc4473a failed before click with one main frame event and zero document requests. Read-only Chromium CDP observation confirmed exact-URL historyApi event. Actual controls: Odmítnout vše and Souhlasím se všemi inside unnamed fixed Tailwind container. Structural fallback and CDP guard added; cookie-related root text assumed by fallback but not supplied in diagnostic. Twelve added test cases including custom SPA pipeline. Retest pending; no live dismissal yet verified.
+
+RE/MAX Mac acceptance (user report): direct exact Czech accept button within div.fixed.bottom-0.left-0.right-0, with opposing reject button and verified root disappearance, succeeded on both viewports; local timeline also reached bottom. Previous automated runtime timed out before click on desktop; isolated mobile succeeded at 5568ms. Use reviewed banner_selector div.fixed.bottom-0.left-0.right-0, detect_automatically false, strategy accept_all, timeout_ms 20000 for this reference. Explicit reviewed overlays lacking cookie prose require opposing recognized choices and fixed/sticky/dialog positioning; automatic fallback still requires cookie text. Snapshot-based DOM reads, transient retries and stage diagnostics added; a click is never retried. New implementation tests not yet run; no screenshot artifacts independently inspected.

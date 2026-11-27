@@ -2,11 +2,11 @@
 import hashlib
 from pathlib import Path
 
-from PIL import Image
-
 from .browser import context_for, origin
 from .measurements import measure
 from .pipeline import CaptureCancelled
+from .reliable_capture import capture_png, QualityFailure, DEVICE_TIMEOUT_MS
+from .cookie_consent import handle_cookie_consent, consent_quality
 
 PROFILES = (
     ("iphone-13", "iPhone 13", 390, 844, 3, True, True),
@@ -21,7 +21,7 @@ LIMITATIONS = [
     "Fixed requested viewport and screen dimensions, not exact browser chrome or operating system behavior.",
     "Mobile user-agent strings are illustrative profiles; UA Client Hints and platform may differ.",
     "Screenshots use CSS pixel scale; device DPR still affects page rendering and media queries.",
-    "Full-page screenshots are bounded to 8 million estimated CSS pixels; viewport fallback is explicit.",
+    "Full-page screenshots are bounded to 8 million estimated CSS pixels; viewport fallback on size or screenshot timeout is explicit.",
     "Separate device evidence, not part of baseline comparison or explicit interaction scenario execution.",
 ]
 MAX_PIXELS=8_000_000
@@ -51,7 +51,7 @@ def planned_devices(url):
     return [dict(profile,url=url,status="not_attempted") for profile in profiles()]
 
 
-def capture_device(browser, expected, root:Path, entry, cancelled=lambda:False):
+def capture_device(browser, expected, root:Path, entry, cancelled=lambda:False, *, consent_config=None):
     if cancelled():
         raise CaptureCancelled("Capture cancelled before device capture")
     result=dict(entry)
@@ -64,12 +64,19 @@ def capture_device(browser, expected, root:Path, entry, cancelled=lambda:False):
         response=page.goto(entry["url"],wait_until="domcontentloaded",timeout=12000)
         if response is None or response.status>=400 or origin(page.url)!=expected:
             raise ValueError("Device page unavailable")
-        page.wait_for_timeout(700)
-        if origin(page.url)!=expected:
-            raise ValueError("Device page changed origin")
         final_url=page.url
+        consent=handle_cookie_consent(page,expected,consent_config,cancelled)
+        result['cookie_consent']=consent
+        if consent['code']=='navigation_changed':
+            raise ValueError('Cookie consent navigation rejected')
         if cancelled():
             raise CaptureCancelled("Capture cancelled before device screenshot")
+        slug=hashlib.sha256(entry["url"].encode()).hexdigest()[:16]
+        relative=Path("devices")/entry["id"]/(slug+".png")
+        target=root/relative
+        target.parent.mkdir(parents=True,exist_ok=True)
+        quality=consent_quality(capture_png(page,target,expected,cancelled,DEVICE_TIMEOUT_MS,device=True),consent)
+        result["quality"]=quality
         observed=page.evaluate("""() => ({
             inner_width:innerWidth,inner_height:innerHeight,screen_width:screen.width,screen_height:screen.height,
             dpr:devicePixelRatio,max_touch_points:navigator.maxTouchPoints,user_agent:navigator.userAgent,
@@ -82,34 +89,29 @@ def capture_device(browser, expected, root:Path, entry, cancelled=lambda:False):
         snapshot=measure(page,measurements=True,interactions=False)
         from .advanced_design import summarize_advanced
         summary=summarize_advanced(snapshot["elements"])
-        full=(observed["document_width"]<=4096 and observed["document_height"]<=16000
-              and observed["document_width"]*observed["document_height"]<=MAX_PIXELS)
-        slug=hashlib.sha256(entry["url"].encode()).hexdigest()[:16]
-        relative=Path("devices")/entry["id"]/(slug+".png")
-        target=root/relative
-        target.parent.mkdir(parents=True,exist_ok=True)
-        page.screenshot(path=str(target),full_page=full,scale="css",animations="disabled",timeout=8000)
         if cancelled():
             raise CaptureCancelled("Capture cancelled after device screenshot")
         if page.url!=final_url:
             raise ValueError("Device page changed during capture")
-        with Image.open(target) as img:
-            if img.format!="PNG" or img.width*img.height>MAX_PIXELS:
-                raise ValueError("Device image exceeds pixel budget")
-            size=list(img.size)
         result.update(status="captured",path=relative.as_posix(),
                       sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
-                      screenshot_mode="full_page" if full else "viewport",
-                      image_size=size,observed=observed,design=summary,
+                      screenshot_mode=quality["screenshot_mode"],
+                      image_size=quality["image_size"],observed=observed,design=summary,
                       media_queries=snapshot["media_queries"],limits=snapshot["limits"])
     except CaptureCancelled:
         if target is not None:
             target.unlink(missing_ok=True)
         raise
-    except Exception:
+    except QualityFailure as exc:
         if target is not None:
             target.unlink(missing_ok=True)
-        result.update(status="failed",reason="Device load, measurement or screenshot failed")
+        result.update(status="failed",reason=str(exc),quality=exc.quality)
+    except Exception as exc:
+        if target is not None:
+            target.unlink(missing_ok=True)
+        code="capture_timeout" if type(exc).__name__=="TimeoutError" else "device_failed"
+        result.update(status="failed",reason="Device load, measurement or screenshot failed",
+                      quality=result.get("quality",{"status":"invalid","code":code}))
     finally:
         if context is not None:
             context.close()

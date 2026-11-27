@@ -238,3 +238,37 @@ def test_full_capture_with_design_and_interactions(browser, tmp_path, monkeypatc
     with ZipFile(output) as archive:
         assert ("design/reference/interaction-manifest.json" in archive.namelist()) == with_scenarios
         assert len([name for name in archive.namelist() if name.startswith("design/reference/interactions/")]) == (2 if with_scenarios else 0)
+
+
+@pytest.mark.parametrize("scrollable",[True,False])
+def test_delayed_scroll_state_diagnostics(browser,tmp_path,monkeypatch,scrollable):
+    from site_transfer import interaction_capture as module
+    original=module.context_for
+    html="""<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
+    <h1>Loading</h1><script>setTimeout(()=>{
+       document.body.innerHTML='<h1>Ready</h1><div style="height:2400px;background:blue"></div>';
+    },1500)</script>""" if scrollable else "<h1>Short document</h1>"
+    def fixture_context(browser,viewport,expected,network_gate):
+        ctx=original(browser,viewport,expected,network_gate)
+        def route(r):
+            if r.request.url=="https://example.com/" and not network_gate["closed"]:
+                r.fulfill(status=200,content_type="text/html",body=html)
+            else:
+                r.fallback()
+        ctx.route("**/*",route)
+        return ctx
+    monkeypatch.setattr(module,"context_for",fixture_context)
+    view={"name":"desktop","width":400,"height":300}
+    state=planned_states(config([scenario(id="scroll",action="scroll",selector=None,scroll_y=600)]),
+                         ["https://example.com/"],[view])[0]
+    result=capture_state(browser,view,origin(state["url"]),tmp_path,state)
+    if scrollable:
+        assert result["status"]=="captured",result
+        assert result["after"]["scroll_y"]==600
+        assert result["readiness"]["sample"]["scrollable"]>=600
+    else:
+        assert result["status"]=="failed"
+        assert result["code"]=="scroll_unchanged"
+        assert result["failure_stage"]=="action"
+        assert result["before"]["scroll_y"]==result["after"]["scroll_y"]==0
+        assert "path" not in result

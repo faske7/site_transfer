@@ -16,6 +16,10 @@ from .interaction_capture import planned_states, capture_state, LIMITATIONS
 from .config import validate_config
 from .assets import inventory, combine
 from .pipeline import CaptureCancelled
+from .reliable_capture import capture_png, QualityFailure
+from .cookie_consent import handle_cookie_consent, consent_unresolved, consent_quality
+from .scroll_timeline import capture_timeline, LIMITATIONS as TIMELINE_LIMITATIONS
+from urllib.parse import urlsplit
 
 DEFAULT_VIEWPORTS = [
     {"name": "desktop", "width": 1440, "height": 900},
@@ -41,6 +45,7 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
     root.mkdir(parents=True, exist_ok=False)
     artifacts = []
     errors = []
+    capture_quality = []
     design_entries = []
     asset_reports = []
     assets_enabled = config.get('assets', {}).get('enabled', True)
@@ -53,10 +58,18 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
     scenario_states = planned_states(config, routes, views) if interactions else []
     done = 0
     timeout = min(config.get("browser", {}).get("timeout_ms", 30000), 30000)
+    consent_config = config.get("browser", {}).get("cookie_consent", {})
+
+    timeline_options=config.get("scroll_timeline",{})
+    timeline_enabled=timeline_options.get("enabled",False)
+    timeline_entries=[]
+    timeline_profiles={p["viewport"]:p for p in timeline_options.get("profiles",[])} if timeline_enabled else {}
+    timeline_routes=set(timeline_options.get("routes",["/"])) if timeline_enabled else set()
 
     def record():
         data = {"routes": list(routes), "artifacts": list(artifacts), "errors": list(errors),
-                "completed": done, "total": len(routes) * len(views)}
+                "completed": done, "total": len(routes) * len(views),
+                "capture_quality_version": 1, "capture_quality": list(capture_quality)}
         if measurements or interactions:
             data["design_reports"] = [{k: v for k, v in entry.items() if k != "summary"} for entry in design_entries]
             data["design_tokens"] = "design-tokens.json"
@@ -81,6 +94,12 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
             data["device_sha256"] = hashlib.sha256((root / "device-manifest.json").read_bytes()).hexdigest()
             data["device_captures"] = [registry_entry(entry) for entry in device_entries]
             data["device_route_limit"] = device_route_limit
+        if timeline_enabled:
+            report={"schema_version":1,"sequences":timeline_entries,"limitations":TIMELINE_LIMITATIONS}
+            write_json(root / "scroll-timeline-manifest.json",report)
+            data["scroll_timeline_manifest"]="scroll-timeline-manifest.json"
+            data["scroll_timeline_sha256"]=hashlib.sha256((root / "scroll-timeline-manifest.json").read_bytes()).hexdigest()
+            data["scroll_timeline"]=list(timeline_entries)
         write_json(root / "routes.json", routes)
         write_json(root / "capture-manifest.json", data)
         progress(data)
@@ -96,28 +115,35 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                 if cancelled():
                     raise CaptureCancelled('Capture cancelled at viewport boundary')
                 baseline_index = None
+                consent = None
                 context = context_for(browser, viewport, expected)
                 try:
                     page = context.new_page()
                     response = page.goto(url, wait_until="domcontentloaded", timeout=timeout)
                     if response is None or response.status >= 400 or origin(page.url) != expected:
                         raise ValueError("Page failed or redirected outside source origin")
-                    page.wait_for_timeout(700)
-                    if origin(page.url) != expected:
-                        raise ValueError("Page redirected outside source origin")
+                    consent = handle_cookie_consent(page, expected, consent_config, cancelled)
+                    if consent_unresolved(consent):
+                        errors.append({"url":url,"viewport":viewport["name"],"stage":"cookie_consent",
+                                       "code":consent["code"],"error":"Cookie consent: "+consent["code"]})
+                    if consent["code"]=="navigation_changed":
+                        raise ValueError("Cookie consent navigation rejected")
+                    name = f"{index + 1:03d}-{hashlib.sha256(url.encode()).hexdigest()[:12]}.png"
+                    relative = Path("screenshots") / viewport["name"] / name
+                    target = root / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    quality = consent_quality(capture_png(page, target, expected, cancelled, timeout), consent)
+                    capture_quality.append({"url":url,"viewport":viewport["name"],"quality":quality,"cookie_consent":consent})
+                    artifacts.append({"path": relative.as_posix(), "url": url, "viewport": viewport["name"],
+                                      "width": viewport["width"], "height": viewport["height"],
+                                      "sha256": hashlib.sha256(target.read_bytes()).hexdigest(), "quality": quality, "cookie_consent": consent})
+                    baseline_index = len(artifacts) - 1
                     if view_index == 0 and config.get("discovery", {}).get("enabled", True):
                         links = page.locator("a[href]").evaluate_all("(nodes) => nodes.slice(0, 2000).map(a => a.href)")
                         for link in links:
                             candidate = normalize(page.url, link, expected)
                             if candidate and candidate not in routes and len(routes) < limit:
                                 routes.append(candidate)
-                    dimensions = page.evaluate("() => ({w: Math.max(document.documentElement.scrollWidth, innerWidth), h: Math.max(document.documentElement.scrollHeight, innerHeight)})")
-                    if dimensions["h"] > 16000 or dimensions["w"] > 4096 or dimensions["h"] * dimensions["w"] > 40000000:
-                        raise ValueError("Page exceeds full-page screenshot safety limits")
-                    name = f"{index + 1:03d}-{hashlib.sha256(url.encode()).hexdigest()[:12]}.png"
-                    relative = Path("screenshots") / viewport["name"] / name
-                    target = root / relative
-                    target.parent.mkdir(parents=True, exist_ok=True)
                     if assets_enabled:
                         try:
                             asset_reports.append(inventory(page, url, viewport["name"]))
@@ -129,11 +155,6 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                             snapshot = measure(page, measurements, interactions)
                         except Exception as exc:
                             errors.append({"url": url, "viewport": viewport["name"], "stage": "design", "error": str(exc)[:500]})
-                    page.screenshot(path=str(target), full_page=True, animations="disabled", timeout=timeout)
-                    artifacts.append({"path": relative.as_posix(), "url": url, "viewport": viewport["name"],
-                                      "width": viewport["width"], "height": viewport["height"],
-                                      "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
-                    baseline_index = len(artifacts) - 1
                     if snapshot is not None:
                         try:
                             summary = summarize(snapshot)
@@ -172,12 +193,33 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                             errors.append({"url": url, "viewport": viewport["name"], "stage": "design", "error": str(exc)[:500]})
                 except CaptureCancelled:
                     raise
+                except QualityFailure as exc:
+                    capture_quality.append({"url":url,"viewport":viewport["name"],"quality":exc.quality,"cookie_consent":consent})
+                    errors.append({"url":url,"viewport":viewport["name"],"stage":"quality",
+                                   "code":exc.quality["code"],"error":str(exc)})
                 except Exception as exc:
-                    errors.append({"url": url, "viewport": viewport["name"], "error": str(exc)[:500]})
+                    code="capture_timeout" if type(exc).__name__=="TimeoutError" else "capture_failed"
+                    if baseline_index is None:
+                        capture_quality.append({"url":url,"viewport":viewport["name"],"quality":{"status":"invalid","code":code},"cookie_consent":consent})
+                    errors.append({"url": url, "viewport": viewport["name"], "stage":"capture", "code":code, "error":"Page load or capture failed"})
                 finally:
                     context.close()
                 done += 1
                 record()
+                if viewport["name"] in timeline_profiles and (urlsplit(url).path or "/") in timeline_routes:
+                    slot=len(timeline_entries)
+                    timeline_entries.append({"url":url,"viewport":viewport["name"],"status":"not_attempted","frames":[]})
+                    record()
+                    def timeline_checkpoint(entry):
+                        timeline_entries[slot]=entry
+                        record()
+                    result=capture_timeline(browser,viewport,expected,root,url,timeline_options,
+                                            timeline_profiles[viewport["name"]],consent_config,cancelled,timeline_checkpoint)
+                    timeline_entries[slot]=result
+                    if result["status"]!="captured":
+                        errors.append({"url":url,"viewport":viewport["name"],"stage":"scroll_timeline",
+                                       "code":result["stop_reason"],"error":"Scroll timeline incomplete"})
+                    record()
                 for state_index, state in enumerate(scenario_states):
                     if state["url"] != url or state["viewport"] != viewport["name"]:
                         continue
@@ -186,12 +228,17 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     if baseline_index is None:
                         result = dict(state, status="skipped", reason="Baseline unavailable")
                     else:
-                        result = capture_state(browser, viewport, expected, root, state, cancelled)
+                        result = capture_state(browser, viewport, expected, root, state, cancelled, consent_config=consent_config)
                         result["baseline_index"] = baseline_index
                     scenario_states[state_index] = result
+                    if consent_unresolved(result.get("cookie_consent",{})):
+                        errors.append({"url":url,"viewport":viewport["name"],"stage":"cookie_consent",
+                                       "state_id":state["id"],"code":result["cookie_consent"]["code"],
+                                       "error":"Cookie consent: "+result["cookie_consent"]["code"]})
                     if result["status"] != "captured":
                         errors.append({"url": url, "viewport": viewport["name"], "stage": "interaction",
-                                       "state_id": state["id"], "error": result["reason"]})
+                                       "state_id": state["id"], "error": result["reason"],
+                                       "code":result.get("code","state_unavailable"),"failure_stage":result.get("failure_stage")})
                     record()
             if device_enabled and index < device_route_limit:
                 start = len(device_entries)
@@ -201,11 +248,14 @@ def capture_site(config, root: Path, progress=lambda data: None, cancelled=lambd
                     device = device_entries[device_index]
                     if cancelled():
                         raise CaptureCancelled("Capture cancelled at device boundary")
-                    result = capture_device(browser, expected, root, device, cancelled)
+                    result = capture_device(browser, expected, root, device, cancelled, consent_config=consent_config)
                     device_entries[device_index] = result
+                    if consent_unresolved(result.get("cookie_consent",{})):
+                        errors.append({"url":url,"viewport":device["id"],"stage":"cookie_consent",
+                                       "code":result["cookie_consent"]["code"],"error":"Cookie consent: "+result["cookie_consent"]["code"]})
                     if result["status"] != "captured":
                         errors.append({"url":url,"viewport":device["id"],"stage":"device",
-                                       "error":result["reason"]})
+                                       "error":result["reason"],"code":result.get("quality",{}).get("code","device_failed")})
                     record()
             index += 1
     return record()

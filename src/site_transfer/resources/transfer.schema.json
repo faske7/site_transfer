@@ -96,6 +96,100 @@
           "type": "integer",
           "minimum": 1000,
           "maximum": 120000
+        },
+        "cookie_consent": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "strategy": {
+              "enum": [
+                "reject_optional",
+                "accept_all",
+                "necessary_only",
+                "manual_selector",
+                "disabled"
+              ],
+              "default": "reject_optional"
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 20000,
+              "default": 5000
+            },
+            "detect_automatically": {
+              "type": "boolean",
+              "default": true
+            },
+            "banner_selector": {
+              "type": "string",
+              "maxLength": 160,
+              "pattern": "^(?:[.#][A-Za-z_][A-Za-z0-9_-]*|\\[data-testid=\"[A-Za-z0-9_-]+\"\\]|(?:div|section|aside|dialog)?(?:\\.[A-Za-z_][A-Za-z0-9_-]*){2,6})$"
+            },
+            "selectors": {
+              "type": "array",
+              "maxItems": 5,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 160,
+                "pattern": "^(?:[.#][A-Za-z_][A-Za-z0-9_-]*|\\[data-testid=\"[A-Za-z0-9_-]+\"\\])$"
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "strategy"
+                ],
+                "properties": {
+                  "strategy": {
+                    "const": "manual_selector"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "banner_selector",
+                  "selectors"
+                ],
+                "properties": {
+                  "selectors": {
+                    "minItems": 1
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "selectors": {
+                    "maxItems": 0
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "required": [
+                  "detect_automatically"
+                ],
+                "properties": {
+                  "detect_automatically": {
+                    "const": false
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "banner_selector"
+                ]
+              }
+            }
+          ]
         }
       }
     },
@@ -300,6 +394,86 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 5
+        }
+      }
+    },
+    "scroll_timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profiles"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "routes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^/(?!/)[^?#\\\\\\s]*$"
+          }
+        },
+        "profiles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "viewport"
+            ],
+            "properties": {
+              "viewport": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]+$"
+              },
+              "step_px": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 1200
+              },
+              "settle_ms": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 3000
+              },
+              "motion_tracking": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "max_frames": {
+          "type": "integer",
+          "minimum": 6,
+          "maximum": 150,
+          "default": 150
+        },
+        "stable_steps": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 10,
+          "default": 5
+        },
+        "visual_threshold_percent": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 10,
+          "default": 0.5
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 5000,
+          "maximum": 360000,
+          "default": 300000
         }
       }
     }
