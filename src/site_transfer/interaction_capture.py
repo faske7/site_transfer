@@ -170,10 +170,17 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
     target=None
     stage="navigation"
     start=monotonic()
+    popups=[]
+    navigated=[]
+
+    def action_navigation():
+        # Only action-phase evidence: preflight consent has its own policy.
+        return (stage in ("network_gate","action","screenshot","validation","publication")
+                and bool(navigated or popups or gate.get("navigation_attempted")))
+
     try:
         context=context_for(browser,viewport,expected,network_gate=gate)
         page=context.new_page()
-        popups=[]
         def close_popup(popup):
             popups.append(True)
             popup.close()
@@ -206,7 +213,6 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
             gate["closed"]=True
             context.set_offline(True)
             result["network_mode"]="offline"
-        navigated=[]
         page.on("framenavigated",lambda frame:navigated.append(True) if frame==page.main_frame else None)
         page.evaluate("""() => {
             document.addEventListener('submit', e=>{e.preventDefault();e.stopImmediatePropagation()}, true);
@@ -255,6 +261,8 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
         if warnings:
             result["quality"]=dict(quality,status="warning",warnings=warnings)
         result["quality"]=consent_quality(result["quality"],consent)
+        if action_navigation() or page.url!=state["url"]:
+            raise StateFailure("navigation_changed","Interaction attempted navigation or popup")
         stage="publication"
         target.write_bytes(data)
         result.update(status="captured",path=relative.as_posix(),
@@ -265,19 +273,33 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
             target.unlink(missing_ok=True)
         raise
     except SkippedState as exc:
-        result.update(status="skipped",reason=str(exc),failure_stage=stage,code="unsafe_or_missing_target")
+        if action_navigation():
+            result.update(status="failed",reason="Interaction attempted navigation or popup",
+                          failure_stage=stage,code="navigation_changed")
+        else:
+            result.update(status="skipped",reason=str(exc),failure_stage=stage,code="unsafe_or_missing_target")
     except StateFailure as exc:
+        # A blocked navigation can disrupt wheel input before observe returns.
+        # Prefer verified security events to secondary scroll/quality failures.
         result.update(status="failed",reason=str(exc),failure_stage=stage,code=exc.code,**exc.details)
+        if action_navigation():
+            result.update(code="navigation_changed",reason="Interaction attempted navigation or popup")
     except Exception as exc:
         # Do not put raw Playwright messages (potentially URL secrets/page content) into evidence.
         code=stage+"_timeout" if type(exc).__name__=="TimeoutError" else stage+"_failed"
-        result.update(status="failed",reason="Interaction "+code,failure_stage=stage,code=code)
+        if action_navigation():
+            result.update(status="failed",reason="Interaction attempted navigation or popup",
+                          failure_stage=stage,code="navigation_changed")
+        else:
+            result.update(status="failed",reason="Interaction "+code,failure_stage=stage,code=code)
     finally:
         if context is not None:
             if state["action"]=="scroll":
                 release_dom_cache(page)
             context.close()
     result["blocked_requests"]=gate["blocked"]
+    if gate.get("scroll_read_only"):
+        result["main_navigation_blocked"]=bool(gate.get("navigation_attempted"))
     result["elapsed_ms"]=int((monotonic()-start)*1000)
     if result["status"]!="captured" and target is not None:
         target.unlink(missing_ok=True)

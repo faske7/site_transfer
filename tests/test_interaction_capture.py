@@ -334,6 +334,7 @@ def test_guarded_scroll_lazy_loading(browser,tmp_path,monkeypatch,case):
     assert result["network_mode"]=="guarded_scroll"
     assert result["blocked_requests"]>=1,result
     assert gates[0]["scroll_read_only"] and not gates[0]["closed"]
+    assert result["main_navigation_blocked"] is (case=="navigation"),result
     if case=="lazy_chunk":
         assert result["status"]=="captured",result
         assert result["after"]["scroll_y"]==600
@@ -360,3 +361,32 @@ def test_application_crash_marker_is_top_level(browser):
         assert exc.value.code=="application_crash"
     finally:
         page.close()
+
+
+def test_navigation_takes_priority_over_scroll_failure(browser,tmp_path,monkeypatch):
+    from site_transfer import interaction_capture as module
+    real_context=module.context_for
+    gates=[]
+    def fixture_context(browser,viewport,expected,network_gate):
+        gates.append(network_gate)
+        ctx=real_context(browser,viewport,expected,network_gate)
+        ctx.route("https://example.com/",lambda route:route.fulfill(
+            status=200,content_type="text/html",
+            body='<h1>Reference</h1><div style="height:3000px;background:blue"></div>'))
+        return ctx
+    def interrupted_observe(page,state,cancelled):
+        gates[0]["navigation_attempted"]=True
+        raise module.StateFailure("scroll_unchanged","No movement",
+                                  before={"scroll_y":0},after={"scroll_y":0})
+    monkeypatch.setattr(module,"context_for",fixture_context)
+    monkeypatch.setattr(module,"observe",interrupted_observe)
+    view={"name":"desktop","width":800,"height":600}
+    state=planned_states(config([scenario(id="scroll",action="scroll",selector=None,scroll_y=600)]),
+                         ["https://example.com/"],[view])[0]
+    result=capture_state(browser,view,origin(state["url"]),tmp_path,state)
+    assert result["status"]=="failed",result
+    assert result["code"]=="navigation_changed",result
+    assert result["main_navigation_blocked"] is True
+    assert result["before"]["scroll_y"]==result["after"]["scroll_y"]==0
+    assert "path" not in result
+    assert not list(tmp_path.rglob("*.png"))
