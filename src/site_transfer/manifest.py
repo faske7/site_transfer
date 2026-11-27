@@ -144,6 +144,83 @@ def timeline_files(manifest):
                 if item["path"]!=expected or not re.fullmatch(r"[a-f0-9]{64}",item["sha256"]):
                     raise ValueError("Invalid timeline file")
                 files[expected]=item["sha256"]
+        storyboard=sequence.get("horizontal_storyboard")
+        if storyboard is not None:
+            from .horizontal_capture import MAX_WIDTH, MAX_PIXELS, MAX_OUTPUT_BYTES, STORYBOARD_GAP, STORYBOARD_MAX_FRAMES
+            from urllib.parse import urlsplit
+            if (view not in ("desktop","desktop_wide") or (urlsplit(url).path or "/")!="/"
+                or storyboard.get("status") not in ("derived","unavailable")):
+                raise ValueError("Invalid horizontal storyboard identity")
+            if storyboard["status"]=="unavailable":
+                if "image" in storyboard:
+                    raise ValueError("Unavailable storyboard references image")
+            else:
+                image=storyboard["image"]
+                expected=f"{prefix}/horizontal-storyboard.png"
+                width,height=storyboard["width"],storyboard["height"]
+                sources=storyboard["sources"]
+                if (storyboard.get("method")!="chronological_viewport_storyboard_v1"
+                    or storyboard.get("evidence") not in ("observed_horizontal_motion","horizontal_motion_unverified")
+                    or image["path"]!=expected or not re.fullmatch(r"[a-f0-9]{64}",image["sha256"])
+                    or not 0<image["bytes"]<=MAX_OUTPUT_BYTES
+                    or not 0<width<=MAX_WIDTH or not 0<height or width*height>MAX_PIXELS
+                    or storyboard["gap"]!=STORYBOARD_GAP
+                    or not 2<=len(sources)<=STORYBOARD_MAX_FRAMES
+                    or storyboard["source_frame_count"]!=len(frames)
+                    or storyboard["omitted_from_overview"]!=len(frames)-len(sources)):
+                    raise ValueError("Invalid horizontal storyboard file")
+                tile_width=sources[0]["rect"][2]
+                if tile_width<=0 or width!=len(sources)*tile_width+(len(sources)-1)*STORYBOARD_GAP:
+                    raise ValueError("Invalid horizontal storyboard layout")
+                previous_index=-1
+                for slot,source in enumerate(sources):
+                    index=source["index"]
+                    if (not isinstance(index,int) or not previous_index<index<len(frames)
+                        or source["sha256"]!=frames[index]["screenshot"]["sha256"]
+                        or source["rect"]!=[slot*(tile_width+STORYBOARD_GAP),0,tile_width,height]):
+                        raise ValueError("Invalid horizontal storyboard provenance")
+                    previous_index=index
+                files[expected]=image["sha256"]
+        panorama=sequence.get("horizontal_panorama")
+        if panorama is not None:
+            from .horizontal_capture import MAX_WIDTH, MAX_PIXELS, MAX_OUTPUT_BYTES, MIN_OVERLAP
+            from urllib.parse import urlsplit
+            if view not in ("desktop","desktop_wide") or (urlsplit(url).path or "/")!="/" or panorama.get("status") not in ("derived","unavailable"):
+                raise ValueError("Invalid horizontal panorama identity")
+            if panorama["status"]=="unavailable":
+                if "image" in panorama:
+                    raise ValueError("Unavailable panorama references image")
+                continue
+            image=panorama["image"]
+            expected=f"{prefix}/horizontal-panorama.png"
+            width,height=panorama["width"],panorama["height"]
+            x,y,w,h=panorama["clip"]
+            if (panorama.get("method")!="exact_horizontal_overlap_v1" or image["path"]!=expected
+                or not re.fullmatch(r"[a-f0-9]{64}",image["sha256"])
+                or not 0<image["bytes"]<=MAX_OUTPUT_BYTES
+                or not 0<w<width<=MAX_WIDTH or h!=height or not 0<height
+                or width*height>MAX_PIXELS or min(x,y)<0):
+                raise ValueError("Invalid horizontal panorama file")
+            end=0
+            seen_indices=set()
+            for source in panorama["sources"]:
+                index,offset=source["index"],source["offset"]
+                if not isinstance(index,int) or not 0<=index<len(frames) or index in seen_indices:
+                    raise ValueError("Invalid horizontal panorama source")
+                seen_indices.add(index)
+                frame=frames[index]
+                candidate=frame.get("horizontal_candidate",{})
+                if (source["sha256"]!=frame["screenshot"]["sha256"]
+                    or candidate.get("clip")!=panorama["clip"]
+                    or candidate.get("total_width")!=width or candidate.get("offset")!=offset
+                    or (end==0 and offset!=0)
+                    or (end and (end-offset<MIN_OVERLAP or offset+w<=end))
+                    or offset<0 or offset+w>width):
+                    raise ValueError("Invalid horizontal panorama provenance")
+                end=offset+w
+            if end!=width or len(seen_indices)<2:
+                raise ValueError("Incomplete horizontal panorama provenance")
+            files[expected]=image["sha256"]
     return files
 
 
@@ -221,6 +298,7 @@ def build_kit(config, job, root, output):
             "3. design-tokens.json and per-viewport design reports if present. V2 includes normalized sampled CSS, layout/semantic metadata and width-only responsive probes; distinguish observed values from declared timing and missing evidence.\n"
             "4. asset-manifest.json if present: inventory only, no license granted.\n"
             "5. scroll-timeline-manifest.json if present: ordered viewport frames, pixel difference maps, scroll positions and sampled motion. Use these for scroll-driven behavior; ordinary scrolling also changes pixels. Inspect stop_reason, truncation and consent status.\n\n"
+            "6. horizontal-panorama.png if listed: exact-overlap derived strip. horizontal-storyboard.png if listed: discrete chronological viewport images with gaps; NOT a continuous page. Dynamic/parallax scenes may have only a storyboard. Read evidence, source indices, omitted count and original full-resolution frames. Neither overview proves complete motion coverage.\\n\\n"
             "## Acceptance\nImplement bounded routes and responsive layouts; compare against matching screenshots, "
             "test behavior, document missing states, and update CONTEXT.md. Do not invent measurements or backend behavior. "
             "Use only authorized assets; no credentials or automatic publication. Review changes before pushing.\n",

@@ -137,6 +137,7 @@ def test_real_capture_and_offline_gate(browser,tmp_path,monkeypatch):
     result=capture_state(browser,view,origin(state["url"]),tmp_path,state)
     assert result["status"]=="captured",result
     assert result["expectation_verified"] is True
+    assert result["network_mode"]=="offline"
     assert not requests
     assert result["sha256"]==hashlib.sha256((tmp_path/result["path"]).read_bytes()).hexdigest()
     assert (tmp_path/result["path"]).read_bytes().startswith(b"\x89PNG")
@@ -272,3 +273,120 @@ def test_delayed_scroll_state_diagnostics(browser,tmp_path,monkeypatch,scrollabl
         assert result["failure_stage"]=="action"
         assert result["before"]["scroll_y"]==result["after"]["scroll_y"]==0
         assert "path" not in result
+
+
+@pytest.mark.parametrize("case",["lazy_chunk","crash","navigation"])
+def test_guarded_scroll_lazy_loading(browser,tmp_path,monkeypatch,case):
+    """Synthetic public routes; actual request guard handles disallowed requests."""
+    from site_transfer import interaction_capture as module
+    real_context=module.context_for
+    loaded=[]
+    gates=[]
+    html="""<!doctype html><meta charset="utf-8">
+    <style>body{margin:0;background:#ace;min-height:3000px}
+    #ready{position:fixed;top:30px;background:blue;color:white}
+    </style><h1>Reference</h1><div style="height:3000px;background:linear-gradient(red,blue)"></div>
+    <script>
+    let started=false;
+    addEventListener('scroll',()=>{
+        if(scrollY<500 || started)return;
+        started=true;
+        fetch('/write',{method:'POST'}).catch(()=>{});
+        const script=document.createElement('script');
+        script.src='/lazy.js';
+        script.onerror=()=>{
+            document.body.style.minHeight='0';
+            document.body.innerHTML='<h2>Application error: a client-side exception has occurred (see the browser console for more information).</h2>';
+        };
+        document.head.append(script);
+    });
+    </script>"""
+    lazy_js=("location.href='/other';" if case=="navigation" else
+             "document.body.insertAdjacentHTML('beforeend','<div id=\"ready\">Lazy content</div>');"
+             "console.error('Benign third-party error');")
+    def fixture_context(browser,viewport,expected,network_gate):
+        ctx=real_context(browser,viewport,expected,network_gate)
+        gates.append(network_gate)
+        def fixture_route(route):
+            request=route.request
+            if not network_gate["closed"] and request.method=="GET":
+                if request.url=="https://example.com/":
+                    route.fulfill(status=200,content_type="text/html",body=html)
+                    return
+                if request.url=="https://example.com/lazy.js":
+                    loaded.append(True)
+                    if case=="crash":
+                        route.abort()
+                    else:
+                        route.fulfill(status=200,content_type="application/javascript",body=lazy_js)
+                    return
+            # POST and main-frame navigation are handled by the real guard.
+            route.fallback()
+        ctx.route("**/*",fixture_route)
+        return ctx
+    monkeypatch.setattr(module,"context_for",fixture_context)
+    view={"name":"desktop","width":800,"height":600}
+    state=planned_states(config([scenario(id="scroll",action="scroll",selector=None,
+                scroll_y=600,wait_ms=500,expect_visible="#ready" if case=="lazy_chunk" else None)]),
+                ["https://example.com/"],[view])[0]
+    result=capture_state(browser,view,origin(state["url"]),tmp_path,state)
+    assert loaded,result
+    assert result["network_mode"]=="guarded_scroll"
+    assert result["blocked_requests"]>=1,result
+    assert gates[0]["scroll_read_only"] and not gates[0]["closed"]
+    assert result["main_navigation_blocked"] is (case=="navigation"),result
+    if case=="lazy_chunk":
+        assert result["status"]=="captured",result
+        assert result["after"]["scroll_y"]==600
+        assert result["expectation_verified"] is True
+        assert (tmp_path/result["path"]).is_file()
+    else:
+        assert result["status"]=="failed",result
+        assert result["code"]==("application_crash" if case=="crash" else "navigation_changed"),result
+        assert "path" not in result
+        assert not list(tmp_path.rglob("*.png"))
+
+
+def test_application_crash_marker_is_top_level(browser):
+    from site_transfer.interaction_capture import reject_application_crash,StateFailure
+    page=browser.new_page()
+    try:
+        page.set_content('<h1>Healthy page</h1><iframe srcdoc="Application error: a client-side exception has occurred"></iframe>')
+        reject_application_crash(page)
+        page.set_content('<h1>Healthy page</h1><div hidden>Application error: a client-side exception has occurred</div>')
+        reject_application_crash(page)
+        page.set_content('<h2>Application error: a client-side exception has occurred (see the browser console for more information).</h2>')
+        with pytest.raises(StateFailure) as exc:
+            reject_application_crash(page)
+        assert exc.value.code=="application_crash"
+    finally:
+        page.close()
+
+
+def test_navigation_takes_priority_over_scroll_failure(browser,tmp_path,monkeypatch):
+    from site_transfer import interaction_capture as module
+    real_context=module.context_for
+    gates=[]
+    def fixture_context(browser,viewport,expected,network_gate):
+        gates.append(network_gate)
+        ctx=real_context(browser,viewport,expected,network_gate)
+        ctx.route("https://example.com/",lambda route:route.fulfill(
+            status=200,content_type="text/html",
+            body='<h1>Reference</h1><div style="height:3000px;background:blue"></div>'))
+        return ctx
+    def interrupted_observe(page,state,cancelled):
+        gates[0]["navigation_attempted"]=True
+        raise module.StateFailure("scroll_unchanged","No movement",
+                                  before={"scroll_y":0},after={"scroll_y":0})
+    monkeypatch.setattr(module,"context_for",fixture_context)
+    monkeypatch.setattr(module,"observe",interrupted_observe)
+    view={"name":"desktop","width":800,"height":600}
+    state=planned_states(config([scenario(id="scroll",action="scroll",selector=None,scroll_y=600)]),
+                         ["https://example.com/"],[view])[0]
+    result=capture_state(browser,view,origin(state["url"]),tmp_path,state)
+    assert result["status"]=="failed",result
+    assert result["code"]=="navigation_changed",result
+    assert result["main_navigation_blocked"] is True
+    assert result["before"]["scroll_y"]==result["after"]["scroll_y"]==0
+    assert "path" not in result
+    assert not list(tmp_path.rglob("*.png"))

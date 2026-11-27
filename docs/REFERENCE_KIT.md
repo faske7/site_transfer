@@ -11,3 +11,5 @@ Verification:
 - Download ZIP; unzip into empty folder; run site-transfer validate-project on that folder.
 - Inspect TASK.md and reference-kit.json; verify old run export and selected-run isolation.
 - Confirm original capture history is unchanged.
+
+Homepage desktop timeline sequences may include horizontal-panorama.png and horizontal-storyboard.png, each with source frame provenance and SHA256. The storyboard is a discrete overview, not a continuous page; use original frames for animation. See [Horizontal Homepage Capture](HORIZONTAL_HOMEPAGE_CAPTURE.md).

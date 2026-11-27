@@ -57,3 +57,5 @@ test (maximum supported coverage, no reduced acceptance configuration).
 Tests authored; not run on this remote editing surface. Keep draft.
 
 PR-17 shares document candidates while preserving separate observations across input/idle/fallback. See [performance design](SCROLL_PERFORMANCE.md).
+
+PR-18 follow-up supersedes the offline gate for isolated scroll only: guarded public GET/HEAD remains available for lazy resources, with main-frame navigation rejection and recognized crash-screen detection. Other interaction actions retain offline mode. Engine semantics and budgets unchanged. See INTERACTIONS.md.

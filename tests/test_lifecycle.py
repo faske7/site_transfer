@@ -70,3 +70,14 @@ def test_kit_attempt_path_is_owner_scoped(monkeypatch,tmp_path):
     monkeypatch.setattr(worker.jobs,"finish_kit",lambda *args:seen.append(args))
     worker.run_kit.run(str(project),str(job))
     assert seen==[(job,token,"ready",{"sha256":"abc","path":"kits/"+str(token)+".zip"})]
+
+
+def test_capture_deadline_and_lease_are_aligned():
+    from site_transfer.server import settings
+    assert worker.run_capture.soft_time_limit == settings.CAPTURE_SOFT_TIMEOUT == 5400
+    assert worker.run_capture.time_limit == settings.CAPTURE_HARD_TIMEOUT == 5430
+    assert worker.jobs.CAPTURE_LEASE == settings.CAPTURE_LEASE == 5550
+    assert worker.jobs.CAPTURE_LEASE - worker.run_capture.time_limit == 120
+    assert worker.run_kit.soft_time_limit == 300
+    assert worker.run_kit.time_limit == 330
+    assert worker.jobs.KIT_LEASE == 390

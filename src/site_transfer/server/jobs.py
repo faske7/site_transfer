@@ -4,7 +4,7 @@ from uuid import uuid4
 from psycopg.types.json import Jsonb
 from .db import connect
 
-CAPTURE_LEASE = 1950  # Celery hard limit 1830 + grace
+from .settings import CAPTURE_LEASE
 KIT_LEASE = 390      # Celery hard limit 330 + grace
 DISPATCH_INTERVAL = 300
 MAX_DISPATCH = 12
