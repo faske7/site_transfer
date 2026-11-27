@@ -11,6 +11,8 @@ from .cookie_consent import handle_cookie_consent
 from .page_readiness import check_cancelled, remaining_ms, pause, wait_ready
 from .pipeline import CaptureCancelled
 from .screenshot_quality import inspect_png
+from .scroll_engine import ScrollEngine
+from .scroll_detection import snapshot_scroll
 
 MAX_SEQUENCE_BYTES = 96 * 1024 * 1024
 PIXEL_THRESHOLD = 12
@@ -20,7 +22,8 @@ LIMITATIONS = [
     "Motion uses sampled visible nodes and scroll-adjusted geometry; not causal animation inference.",
     "Bottom and geometry/DOM stability are observational, not proof of complete lazy loading.",
     "No arbitrary drag or scripted user actions; mobile may use scrollBy fallback.",
-    "Continuously moving visuals do not prevent bottom completion.",
+    "Autonomous animation and pixel change alone do not establish scroll progress.",
+    "Transform-only completion is unverified without a measurable scroll extent.",
 ]
 
 SNAPSHOT = r"""
@@ -133,7 +136,8 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
     previous=previous_bytes=None
     stable=0
     total_bytes=0
-    fallback=False
+    engine=None
+    last_step=None
     popups=[]
     navigations=[]
     try:
@@ -162,6 +166,7 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
         wait_ready(page,min(deadline,monotonic()+4),cancelled)
         page.evaluate("window.scrollTo(0,0)")
         pause(page,deadline,cancelled,settle)
+        engine=ScrollEngine(page,cancelled,mobile=mobile)
         entry["stop_reason"]="max_frames"
         for index in range(options.get("max_frames",150)):
             check_cancelled(cancelled)
@@ -195,10 +200,16 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
                                   abs(state["document_height"]-previous["document_height"])>2)
                 dom_changed=(state["dom_count"]!=previous["dom_count"] or
                              state["dom_hash"]!=previous["dom_hash"])
-                stable=stable+1 if not geometry_changed and not dom_changed else 0
+                stable=stable+1 if not geometry_changed and not dom_changed and not (last_step or {}).get("progress") else 0
             # Keep raw frame and map within a sequence byte budget. Metadata
             # stores bounded motion samples rather than duplicating every node.
             motion_count=len(motion)
+            scroll_state=snapshot_scroll(page)
+            measurable_end=engine.end(scroll_state)
+            # A genuinely short static document is not a custom transform scene.
+            static_end=(not engine.modes and scroll_state["root"]["max_y"]<=3
+                        and scroll_state["root"]["max_x"]<=3 and not scroll_state["containers"]
+                        and not scroll_state["truncated"])
             frame={"index":index,"scroll_y":state["scroll_y"],
                    "document_height":state["document_height"],"max_scroll":state["max_scroll"],
                    "viewport_height":state["viewport_height"],"dom_count":state["dom_count"],
@@ -208,8 +219,11 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
                    "motion_count":motion_count,"motion":motion[:40],
                    "motion_truncated":motion_count>40 or state["motion_sample_truncated"],
                    "dom_sample_truncated":state["dom_sample_truncated"],
-                   "stable_count":stable,"at_bottom":state["scroll_y"]>=state["max_scroll"]-3,
-                   "scroll_fallback_used":fallback,"quality":quality}
+                   "stable_count":stable,"at_bottom":measurable_end or static_end,
+                   "scroll_fallback_used":bool((last_step or {}).get("fallback_used")),
+                   "scroll_observation":last_step,"scroll_geometry":{"root":scroll_state["root"],
+                       "containers":scroll_state["containers"],"sample_truncated":scroll_state["truncated"]},
+                   "quality":quality}
             needed=len(data)+(len(diff) if diff is not None else 0)
             if total_bytes+needed>MAX_SEQUENCE_BYTES:
                 entry["stop_reason"]="byte_budget"
@@ -220,10 +234,13 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
             total_bytes+=needed
             entry["frames"].append(frame)
             entry["status"]="partial"
+            entry["scroll_intelligence"]=engine.summary()
             entry["bytes"]=total_bytes
             entry["elapsed_ms"]=int((monotonic()-start)*1000)
             if stable>=stable_limit:
-                entry["stop_reason"]="bottom_reached" if frame["at_bottom"] else "scroll_stalled_before_bottom"
+                entry["stop_reason"]=("bottom_reached" if frame["at_bottom"] else
+                    "transform_end_unverified" if engine.transform_only and not engine.targets else
+                    "scroll_stalled_before_bottom")
                 if frame["at_bottom"]:
                     entry["status"]="captured"
                 checkpoint(entry)
@@ -232,16 +249,10 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
             previous,previous_bytes=state,data
             if index+1>=options.get("max_frames",150):
                 break
-            page.mouse.move(viewport["width"]/2,viewport["height"]/2)
-            page.mouse.wheel(0,step)
-            pause(page,deadline,cancelled,settle)
-            fallback=False
-            if mobile and not frame["at_bottom"] and remaining_ms(deadline)>0:
-                current_y=page.evaluate("document.scrollingElement.scrollTop")
-                if abs(current_y-state["scroll_y"])<=2:
-                    page.evaluate("(step)=>window.scrollBy(0,step)",step)
-                    pause(page,deadline,cancelled,settle)
-                    fallback=True
+            last_step=engine.step(step,settle,deadline)
+            if last_step is None:
+                entry["stop_reason"]="time_budget"
+                break
     except CaptureCancelled:
         raise
     except Exception as exc:

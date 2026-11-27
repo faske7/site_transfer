@@ -9,9 +9,10 @@ from .pipeline import CaptureCancelled
 from .screenshot_quality import inspect_png
 from .page_readiness import wait_ready, check_cancelled
 from .cookie_consent import handle_cookie_consent, consent_quality
+from .scroll_engine import ScrollEngine
 
 LIMITATIONS = [
-    "One declared action per fresh browser context; no typing, submission, authentication or arbitrary scripts.",
+    "One declared action per fresh browser context (scroll may use bounded wheel steps); no typing, submission, authentication or arbitrary scripts.",
     "Network is disabled after initial load; states requiring new resources may be incomplete.",
     "An image is an observation, not proof of semantic success unless an explicit expectation is checked.",
     "Trusted authorized public references only; offline mode and DOM checks are not a hostile-site sandbox.",
@@ -83,15 +84,20 @@ def unique_target(page, selector):
     return handle
 
 
-def observe(page, state):
+def observe(page, state, cancelled=lambda:False):
     action=state["action"]
     before={"scroll_y":page.evaluate("() => scrollY")}
     if action=="scroll":
-        page.evaluate("(y) => window.scrollTo({top:y,behavior:'instant'})",state["scroll_y"])
-        page.wait_for_timeout(state["wait_ms"])
-        after={"scroll_y":page.evaluate("() => scrollY")}
-        if after["scroll_y"]==before["scroll_y"]:
-            raise StateFailure("scroll_unchanged","Requested scroll did not change position",
+        engine=ScrollEngine(page,cancelled,mobile=state["width"]<600)
+        report=engine.scroll_to(state["scroll_y"],state["wait_ms"],monotonic()+12)
+        before=report.pop("before")
+        after=report.pop("after")
+        after["scroll_observation"]=report
+        if not report["progress"]:
+            raise StateFailure("scroll_unchanged","Requested scroll did not produce observed movement",
+                               before=before,after=after)
+        if report["target_reached"] is False:
+            raise StateFailure("scroll_target_unreached","Requested document scroll target not reached",
                                before=before,after=after)
     else:
         if action=="hover" and not page.evaluate("() => matchMedia('(hover: hover)').matches"):
@@ -186,7 +192,7 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
         if cancelled():
             raise CaptureCancelled("Capture cancelled before action")
         stage="action"
-        before,after,verified=observe(page,state)
+        before,after,verified=observe(page,state,cancelled)
         result.update(before=before,after=after,expectation_verified=verified)
         if cancelled():
             raise CaptureCancelled("Capture cancelled after action")
@@ -212,6 +218,8 @@ def capture_state(browser, viewport, expected, root: Path, state, cancelled=lamb
             warnings.append("readiness_unsettled")
         if gate["blocked"]:
             warnings.append("network_requests_blocked")
+        if state["action"]=="scroll" and after["scroll_observation"]["target_reached"] is None:
+            warnings.append("scroll_target_not_measurable")
         if quality["status"]=="warning":
             warnings.append(quality["code"])
         if warnings:
