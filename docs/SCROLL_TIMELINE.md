@@ -39,7 +39,7 @@ Continuous animation is reported but not a termination veto; max frames,
 Invalid PNG halts sequence without publishing that frame. No claim of complete
 motion trajectory if any bound or error occurs. Consent failed/unresolved stops
 timeline; not_detected is not proof of absence. Per-frame checkpoints update
-existing job manifest; no schema migration or new database. Existing 30-minute
+existing job manifest; no schema migration or new database. Existing 90-minute
 worker hard limit and 512 MiB kit cap remain. Snapshot/PNG timing is approximate.
 
 Evidence in scroll-timeline-manifest.json and scroll-timeline/<viewport>/<route hash>/.

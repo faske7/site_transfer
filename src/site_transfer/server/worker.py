@@ -9,7 +9,7 @@ from site_transfer.capture import capture_site
 from site_transfer.pipeline import CaptureCancelled, make_kit
 from . import db, jobs
 from .storage import run_root, append_capture_context
-from .settings import redis_url
+from .settings import redis_url, CAPTURE_SOFT_TIMEOUT, CAPTURE_HARD_TIMEOUT
 
 log = logging.getLogger(__name__)
 app = Celery("site_transfer", broker=redis_url())
@@ -36,7 +36,7 @@ def record_worker_heartbeat(sender=None, **kwargs):
         log.warning("Worker registry heartbeat failed")
 
 
-@app.task(name="studio.capture", soft_time_limit=1800, time_limit=1830)
+@app.task(name="studio.capture", soft_time_limit=CAPTURE_SOFT_TIMEOUT, time_limit=CAPTURE_HARD_TIMEOUT)
 def run_capture(job_id):
     job_id=UUID(job_id)
     job=jobs.claim(job_id)
@@ -60,7 +60,7 @@ def run_capture(job_id):
     except CaptureCancelled:
         error="Capture interrupted; recorded evidence preserved"
     except SoftTimeLimitExceeded:
-        error="Capture exceeded 30 minute job limit"
+        error=f"Capture exceeded {CAPTURE_SOFT_TIMEOUT // 60} minute job limit"
     except Exception:
         error="Capture failed; inspect recorded evidence"
         log.exception("Capture failed: %s",job_id)
