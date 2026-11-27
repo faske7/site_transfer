@@ -116,8 +116,11 @@ def build_component_map(bundle: EvidenceBundle) -> ComponentMap:
                 screenshot_quality = quality(image)
         if not screenshot:
             limits.add("unmatched_screenshot")
+        if ref(bundle, path, kind=EvidenceKind.DESIGN_REPORT) is None:
+            limits.add("unavailable_design_report")
+            continue
         elements = rows(report.get("elements"))
-        counts = Counter(obj(r).get("selector") for r in elements if isinstance(obj(r).get("selector"), str))
+        counts = Counter(obj(r).get("selector") for r in elements if isinstance(obj(r).get("selector"), str) and obj(r).get("selector"))
         by_selector = {obj(r)["selector"]: obj(r) for r in elements
                        if isinstance(obj(r).get("selector"), str) and counts[obj(r)["selector"]] == 1}
         if any(n > 1 for n in counts.values()):
@@ -167,7 +170,8 @@ def build_component_map(bundle: EvidenceBundle) -> ComponentMap:
             components.append(component)
             # Group only cross-page candidates, within the same viewport.
             # A bounded, nonempty sampled subtree is required; no merge of instances.
-            if kind in ("header", "footer", "navigation") and truncated is False:
+            if (kind in ("header", "footer", "navigation") and truncated is False
+                    and not any(n > 1 for n in counts.values())):
                 direct = children.get(selector, [])
                 if direct and len(direct) <= 40:
                     def fingerprint(s, depth, visited):
