@@ -54,3 +54,5 @@ PR-15 adds opt-in [scroll timeline evidence](docs/SCROLL_TIMELINE.md) for scroll
 PR-16 introduces [Scroll Intelligence](docs/SCROLL_INTELLIGENCE.md), shared wheel input and sampled root/nested/horizontal/transform observations for scroll states and timelines.
 
 PR-17 adds bounded shared DOM candidate caching, pixel-equivalent timeline diff optimization and additive diagnostics. See [architecture](docs/SCROLL_PERFORMANCE.md) and [benchmark/acceptance](docs/SCROLL_PERFORMANCE_BENCHMARK.md).
+
+Horizontal Homepage Capture derives verified horizontal strips and discrete dynamic storyboards from existing desktop homepage timelines; see [configuration and evidence limits](docs/HORIZONTAL_HOMEPAGE_CAPTURE.md).

@@ -116,6 +116,12 @@ def test_timeline_pipeline_and_zip(browser,tmp_path,monkeypatch,max_frames,expec
             if frame["index"]:
                 assert "design/reference/"+frame["difference_map"]["path"] in names
         assert "design/reference/scroll-timeline-manifest.json" in names
+        overview=sequence["horizontal_storyboard"]
+        assert overview["status"]=="derived",overview
+        assert overview["method"]=="chronological_viewport_storyboard_v1"
+        assert "design/reference/"+overview["image"]["path"] in names
+        import hashlib
+        assert hashlib.sha256(archive.read("design/reference/"+overview["image"]["path"])).hexdigest()==overview["image"]["sha256"]
     (root/sequence["frames"][0]["screenshot"]["path"]).write_bytes(b"tampered")
     with pytest.raises(ValueError,match="checksum"):
         build_kit(cfg,{"id":"fixture","status":"partial","manifest":manifest},root,output)

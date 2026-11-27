@@ -105,3 +105,9 @@ Logical PR-16 Scroll Intelligence Engine (stacked draft on PR-15 b0031cf): share
 
 ## Logical PR-17 — Scroll Intelligence Performance Optimization
 Stacked draft on PR-16 d2c438be. Shared bounded document candidates, fresh per-observation geometry/styles, previous RGB frame cache, additive sequence diagnostics and explicit resource cleanup. New regression fixtures and component benchmark; final checkout, full regression and production benchmark pending due to Git DNS blocker. Preliminary numbers not release evidence. No changes to prior branches, limits, security, historical artifacts, GUI or DB. See docs/SCROLL_PERFORMANCE.md and docs/SCROLL_PERFORMANCE_BENCHMARK.md. Keep draft until verified.
+
+## PR-15/16/17 acceptance and merge
+User reported PR-17 targeted 131 passed, backend 235 passed/11 PostgreSQL DSN skips/2 warnings; Chromium 141.0.7390.37 on macOS ARM64. Component benchmark (5000 DOM nodes, seven runs): candidate requests 20 to 1; pixel diff median desktop 188.794 to 139.575 ms, mobile 134.138 to 98.733 ms; 28/28 decoded overlay pairs and desktop/mobile DOM states equal. Worker/browser peak RAM and full production timings not measured. User reports RE/MAX production otherwise OK except two desktop/desktop_wide interaction scroll_target_unreached errors. User explicitly approved merging #16/#17/#18; main c19d6dd includes all three. Adaptive Scroll Target Resolution deferred.
+
+## Horizontal Homepage Capture (quick fix)
+Separate draft from main c19d6dd. Supplemental exact strip and discrete chronological storyboard derived from existing homepage desktop/desktop_wide timelines. No extra traversal, mobile changes, scroll target change, or limit expansion. Existing two-sequence cap retained; wide desktop needs a configured timeline profile in a separate run if desktop/mobile already configured. New tests authored, full execution and RE/MAX verification pending. See docs/HORIZONTAL_HOMEPAGE_CAPTURE.md.

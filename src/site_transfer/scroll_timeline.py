@@ -12,6 +12,7 @@ from .scroll_engine import ScrollEngine
 from .scroll_detection import snapshot_scroll
 from .scroll_performance import DOM_CANDIDATES, PerformanceDiagnostics, release_dom_cache
 from .scroll_pixel_diff import PIXEL_THRESHOLD, PixelDiffSequence, visual_diff
+from .horizontal_capture import PROBE as HORIZONTAL_PROBE, eligible, build_panorama, build_storyboard
 
 MAX_SEQUENCE_BYTES = 96 * 1024 * 1024
 LIMITATIONS = [
@@ -112,6 +113,7 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
     deadline=start+options.get("timeout_ms",300000)/1000
     prefix=sequence_prefix(url,viewport["name"])
     mobile=viewport["width"]<600
+    horizontal=eligible(url,viewport)
     step=profile.get("step_px",600 if mobile else 250)
     settle=profile.get("settle_ms",800 if mobile else 1500)
     track=profile.get("motion_tracking",not mobile)
@@ -131,6 +133,20 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
     last_step=None
     popups=[]
     navigations=[]
+    if horizontal:
+        entry["horizontal_panorama"]={"status":"unavailable","reason":"no_verified_horizontal_strip"}
+        entry["horizontal_storyboard"]={"status":"unavailable","reason":"insufficient_frames"}
+
+    def horizontal_probe():
+        started=perf_counter()
+        try:
+            observation=page.evaluate(HORIZONTAL_PROBE)
+            diagnostics.snapshot(observation,"timeline_snapshot_ms",started)
+            return observation["candidate"]
+        except Exception:
+            # Supplemental evidence cannot invalidate a regular timeline.
+            return None
+
     try:
         check_cancelled(cancelled)
         context=context_for(browser,viewport,expected)
@@ -168,6 +184,7 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
                 entry["stop_reason"]="navigation_changed"
                 break
             state=snapshot(page,track,diagnostics)
+            candidate=horizontal_probe() if horizontal and remaining_ms(deadline)>0 else None
             left=remaining_ms(deadline)
             if left<=0:
                 entry["stop_reason"]="time_budget"
@@ -177,6 +194,10 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
             if page.url!=url or navigations or popups:
                 entry["stop_reason"]="navigation_changed"
                 break
+            if candidate is not None:
+                # Geometry must agree on both sides of the actual screenshot.
+                if remaining_ms(deadline)<=0 or horizontal_probe()!=candidate:
+                    candidate=None
             phase=perf_counter()
             quality=inspect_png(data)
             diagnostics.add_time("other_processing_ms",phase)
@@ -221,6 +242,8 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
                    "scroll_observation":last_step,"scroll_geometry":{"root":scroll_state["root"],
                        "containers":scroll_state["containers"],"sample_truncated":scroll_state["truncated"]},
                    "quality":quality}
+            if candidate is not None:
+                frame["horizontal_candidate"]=candidate
             needed=len(data)+(len(diff) if diff is not None else 0)
             if total_bytes+needed>MAX_SEQUENCE_BYTES:
                 diagnostics.add_time("other_processing_ms",phase)
@@ -253,6 +276,33 @@ def capture_timeline(browser,viewport,expected,root,url,options,profile,consent_
             if last_step is None:
                 entry["stop_reason"]="time_budget"
                 break
+        if horizontal and entry["frames"] and entry["stop_reason"]!="navigation_changed":
+            try:
+                report,panorama=build_panorama(root,entry["frames"],deadline,cancelled,
+                                               MAX_SEQUENCE_BYTES-total_bytes)
+                if panorama is not None:
+                    report["image"]=write_bytes(root,prefix/"horizontal-panorama.png",panorama)
+                    total_bytes+=len(panorama)
+                    entry["bytes"]=total_bytes
+                entry["horizontal_panorama"]=report
+            except CaptureCancelled:
+                raise
+            except Exception:
+                entry["horizontal_panorama"]={"status":"unavailable","reason":"derivation_failed"}
+            # Independent fallback: animation or overlap failure is not
+            # grounds to discard the observed sequence.
+            try:
+                report,storyboard=build_storyboard(root,entry["frames"],deadline,cancelled,
+                                                  MAX_SEQUENCE_BYTES-total_bytes)
+                if storyboard is not None:
+                    report["image"]=write_bytes(root,prefix/"horizontal-storyboard.png",storyboard)
+                    total_bytes+=len(storyboard)
+                    entry["bytes"]=total_bytes
+                entry["horizontal_storyboard"]=report
+            except CaptureCancelled:
+                raise
+            except Exception:
+                entry["horizontal_storyboard"]={"status":"unavailable","reason":"derivation_failed"}
     except CaptureCancelled:
         raise
     except Exception as exc:
