@@ -51,3 +51,5 @@ remain disabled. No raw asset redistribution or action beyond scrolling.
 Tests authored; local and Docker acceptance pending.
 
 PR-16 adds per-frame scroll_observation and scroll_geometry plus sequence scroll_intelligence. Measurable active axes determine end; transform-only end is unverified. Existing limits and paths unchanged. See SCROLL_INTELLIGENCE.md.
+
+PR-17 adds optional sequence-level performance counters and reuses the decoded preceding frame. Raw PNG evidence and threshold semantics remain unchanged. See [performance design](SCROLL_PERFORMANCE.md).

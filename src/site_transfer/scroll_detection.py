@@ -4,16 +4,21 @@ No framework-specific selectors or injected scrolling styles. Observations
 are not proof that an animation is causally driven by scroll.
 """
 
+from time import perf_counter
+
+from .scroll_performance import DOM_CANDIDATES
+
 SAMPLE = r"""
-() => {
+() => {""" + DOM_CANDIDATES + r"""
     const doc=document.scrollingElement || document.documentElement;
     const round=n=>Math.round(n*10)/10;
-    const position=el=>({
-        x:round(el.scrollLeft),y:round(el.scrollTop),
-        max_x:Math.max(0,el.scrollWidth-el.clientWidth),
-        max_y:Math.max(0,el.scrollHeight-el.clientHeight),
-        rtl:getComputedStyle(el).direction==='rtl'
-    });
+    const position=(el,s,maxX,maxY)=>{
+        metrics.geometry_reads+=2;
+        return {x:round(el.scrollLeft),y:round(el.scrollTop),
+            max_x:Math.max(0,maxX??extent(el,'x')),
+            max_y:Math.max(0,maxY??extent(el,'y')),
+            rtl:(s||style(el)).direction==='rtl'};
+    };
     // Store identity rather than unstable DOM indexes across hydration.
     window.__stScrollIds ??= new WeakMap();
     window.__stScrollCounter ??= 0;
@@ -21,22 +26,23 @@ SAMPLE = r"""
         if(!window.__stScrollIds.has(el))window.__stScrollIds.set(el,++window.__stScrollCounter);
         return window.__stScrollIds.get(el);
     };
-    const nodes=document.body?.getElementsByTagName('*') || [];
     const containers=[],transforms=[];
     let containerTruncated=false,transformTruncated=false;
-    for(let i=0;i<Math.min(nodes.length,5000);i++){
+    for(let i=0;i<nodes.length;i++){
         const el=nodes[i];
         if(el===doc||el===document.body||el===document.documentElement)continue;
-        const r=el.getBoundingClientRect();
+        const r=rect(el);
         const left=Math.max(0,r.left),right=Math.min(innerWidth,r.right);
         const top=Math.max(0,r.top),bottom=Math.min(innerHeight,r.bottom);
         if(right-left<2||bottom-top<2)continue;
-        const s=getComputedStyle(el);
+        const s=style(el);
         if(s.display==='none'||s.visibility==='hidden')continue;
-        const sx=/^(auto|scroll|overlay)$/.test(s.overflowX)&&el.scrollWidth-el.clientWidth>2;
-        const sy=/^(auto|scroll|overlay)$/.test(s.overflowY)&&el.scrollHeight-el.clientHeight>2;
+        metrics.visible_elements_sampled++;
+        let maxX,maxY;
+        const sx=/^(auto|scroll|overlay)$/.test(s.overflowX)&&(maxX=extent(el,'x'))>2;
+        const sy=/^(auto|scroll|overlay)$/.test(s.overflowY)&&(maxY=extent(el,'y'))>2;
         if(sx||sy){
-            if(containers.length<32)containers.push({...position(el),id:id(el),
+            if(containers.length<32)containers.push({...position(el,s,maxX,maxY),id:id(el),
                 tag:el.tagName.toLowerCase(),scrollable_x:sx,scrollable_y:sy,
                 point:[round((left+right)/2),round((top+bottom)/2)],
                 area:round((right-left)*(bottom-top))});
@@ -51,13 +57,19 @@ SAMPLE = r"""
     }
     containers.sort((a,b)=>b.area-a.area||a.id-b.id);
     return {root:position(doc),viewport:[innerWidth,innerHeight],
-      containers,transforms,truncated:nodes.length>5000||containerTruncated||transformTruncated};
+      containers,transforms,truncated:domCount>5000||containerTruncated||transformTruncated,_performance:metrics};
 }
 """
 
 
-def snapshot_scroll(page):
-    return page.evaluate(SAMPLE)
+def snapshot_scroll(page, diagnostics=None):
+    started=perf_counter()
+    state=page.evaluate(SAMPLE)
+    if diagnostics is None:
+        state.pop("_performance",None)
+    else:
+        diagnostics.snapshot(state,"scroll_snapshot_ms",started)
+    return state
 
 
 def coordinate_changes(before, after):
